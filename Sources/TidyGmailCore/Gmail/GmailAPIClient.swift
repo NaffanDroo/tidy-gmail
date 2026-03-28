@@ -27,12 +27,14 @@ public enum GmailAPIError: Error, Equatable {
 
 public final class LiveGmailAPIClient: GmailAPIClient {
     private let session: URLSession
-    private let keychain: any KeychainService
+    private let tokenProvider: any TokenProvider
     private let baseURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!
+    /// Maximum number of fetchMessage HTTP calls in-flight at once — prevents HTTP 429 from Gmail.
+    private let fetchConcurrencyLimit = 5
 
-    public init(session: URLSession = .shared, keychain: any KeychainService = LiveKeychainService()) {
+    public init(session: URLSession = .shared, tokenProvider: any TokenProvider) {
         self.session = session
-        self.keychain = keychain
+        self.tokenProvider = tokenProvider
     }
 
     public func searchMessages(
@@ -55,12 +57,25 @@ public final class LiveGmailAPIClient: GmailAPIClient {
             return (messages: [], nextPageToken: nil)
         }
 
-        // Fetch headers for each message in parallel (capped at 50 concurrent to respect rate limits).
+        // Fetch headers for each message with bounded concurrency to avoid HTTP 429.
         let messages = try await withThrowingTaskGroup(of: GmailMessage.self) { group in
-            for ref in refs.prefix(50) {
+            var iterator = refs.prefix(50).makeIterator()
+
+            // Pre-fill up to the concurrency limit.
+            for _ in 0..<fetchConcurrencyLimit {
+                guard let ref = iterator.next() else { break }
                 group.addTask { try await self.fetchMessage(id: ref.id) }
             }
-            return try await group.reduce(into: [GmailMessage]()) { $0.append($1) }
+
+            // As each task completes, admit the next one from the queue.
+            var collected = [GmailMessage]()
+            while let message = try await group.next() {
+                collected.append(message)
+                if let ref = iterator.next() {
+                    group.addTask { try await self.fetchMessage(id: ref.id) }
+                }
+            }
+            return collected
         }
 
         return (
@@ -74,10 +89,12 @@ public final class LiveGmailAPIClient: GmailAPIClient {
             url: baseURL.appendingPathComponent("messages/\(id)"),
             resolvingAgainstBaseURL: true
         )!
-        components.queryItems = [URLQueryItem(name: "format", value: "metadata"),
-                                  URLQueryItem(name: "metadataHeaders", value: "From"),
-                                  URLQueryItem(name: "metadataHeaders", value: "Subject"),
-                                  URLQueryItem(name: "metadataHeaders", value: "Date")]
+        components.queryItems = [
+            URLQueryItem(name: "format", value: "metadata"),
+            URLQueryItem(name: "metadataHeaders", value: "From"),
+            URLQueryItem(name: "metadataHeaders", value: "Subject"),
+            URLQueryItem(name: "metadataHeaders", value: "Date"),
+        ]
 
         let response: GmailMessageResponse = try await fetch(url: components.url!)
         return response.toDomain()
@@ -86,9 +103,7 @@ public final class LiveGmailAPIClient: GmailAPIClient {
     // MARK: - Private
 
     private func fetch<T: Decodable>(url: URL) async throws -> T {
-        guard let accessToken = try keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.accessToken) else {
-            throw GmailAPIError.unauthorized
-        }
+        let accessToken = try await tokenProvider.freshAccessToken()
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
