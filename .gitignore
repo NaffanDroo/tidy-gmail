@@ -6,8 +6,9 @@
 .vscode/
 .idea/
 
-# Claude Code — project permissions are developer-local
-.claude/
+# Claude Code — permissions are developer-local; agents are shared
+.claude/settings.json
+.claude/settings.local.json
 
 # Xcode / Swift
 DerivedData/
