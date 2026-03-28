@@ -25,9 +25,30 @@ jobs:
       - name: Generate coverage report
         id: coverage
         run: |
-          BIN_PATH="$(swift build --show-bin-path)"
           PROFDATA="$(find .build -name default.profdata -type f | head -1)"
-          TEST_BIN="$BIN_PATH/TidyGmailTests.xctest/Contents/MacOS/TidyGmailTests"
+          if [[ -z "$PROFDATA" ]]; then
+            echo "::error::No profdata file found — did 'swift test --enable-code-coverage' run?"
+            exit 1
+          fi
+
+          # SPM names the xctest bundle <PackageName>PackageTests, not <TargetName>.
+          # Discover the bundle dynamically so the name never needs to be hard-coded.
+          XCTEST_BUNDLE="$(find .build -maxdepth 6 -name "*.xctest" -type d \
+            -not -path "*.dSYM/*" 2>/dev/null | head -1)"
+          if [[ -n "$XCTEST_BUNDLE" ]]; then
+            BUNDLE_NAME="$(basename "$XCTEST_BUNDLE" .xctest)"
+            TEST_BIN="$XCTEST_BUNDLE/Contents/MacOS/$BUNDLE_NAME"
+          else
+            # Fallback: plain binary (no xctest bundle) — search by suffix
+            TEST_BIN="$(find .build -type f -name "*Tests" \
+              -not -path "*.dSYM/*" 2>/dev/null | head -1)"
+          fi
+          if [[ -z "$TEST_BIN" ]] || [[ ! -f "$TEST_BIN" ]]; then
+            echo "::error::Could not find test binary. Build artifacts under .build/:"
+            find .build -maxdepth 6 -not -path "*.dSYM/*" \
+              \( -name "*.xctest" -o -name "*Tests" \) 2>/dev/null | sort || true
+            exit 1
+          fi
 
           EXCLUDE='\.build|Tests/|main\.swift'
 

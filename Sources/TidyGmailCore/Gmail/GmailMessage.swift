@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Domain model
 
 /// A lightweight representation of a Gmail message suitable for list display.
-public struct GmailMessage: Identifiable, Sendable, Equatable {
+public struct GmailMessage: Identifiable, Sendable, Equatable, Hashable {
     public let id: String
     public let threadID: String
     public let from: String

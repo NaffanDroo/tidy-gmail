@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 public struct EmailListView: View {
     @State private var viewModel: EmailListViewModel?
+    @State private var selectedMessage: GmailMessage?
     @Environment(AuthState.self) private var authState
     @Environment(AppAuthOAuthManager.self) private var oauthManager
 
@@ -12,8 +13,15 @@ public struct EmailListView: View {
         NavigationSplitView {
             sidebarContent
         } detail: {
-            Text("Select an email to preview")
-                .foregroundStyle(.secondary)
+            if let selectedMessage {
+                EmailDetailView(message: selectedMessage)
+            } else {
+                ContentUnavailableView(
+                    "No message selected",
+                    systemImage: "envelope",
+                    description: Text("Select an email from the list to preview it.")
+                )
+            }
         }
         .navigationTitle("Tidy Gmail")
         .toolbar { toolbarContent }
@@ -68,9 +76,10 @@ public struct EmailListView: View {
     }
 
     private func messageList(viewModel: EmailListViewModel) -> some View {
-        List {
+        List(selection: $selectedMessage) {
             ForEach(viewModel.messages) { message in
                 EmailRowView(message: message)
+                    .tag(message)
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
             }
 
@@ -140,8 +149,12 @@ public struct EmailListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
-            Button("Sign out") { /* handled by AuthCoordinator */ }
-                .help("Sign out of your Google account")
+            Button("Sign out") {
+                try? oauthManager.signOut()
+                authState.isSignedIn = false
+                authState.userEmail = nil
+            }
+            .help("Sign out of your Google account")
         }
     }
 }

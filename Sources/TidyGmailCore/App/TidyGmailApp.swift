@@ -5,7 +5,9 @@ public struct TidyGmailApp: App {
     @State private var authState = AuthState()
     @State private var oauthManager = AppAuthOAuthManager()
 
-    public init() {}
+    public init() {
+        NSApplication.shared.applicationIconImage = makeAppIcon()
+    }
 
     public var body: some Scene {
         WindowGroup {
