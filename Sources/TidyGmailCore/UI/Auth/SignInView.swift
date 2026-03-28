@@ -3,11 +3,18 @@ import SwiftUI
 @MainActor
 public struct SignInView: View {
     @Environment(AuthState.self) private var authState
-    private let coordinator: AuthCoordinator
 
-    public init(coordinator: AuthCoordinator = .makeDefault()) {
-        self.coordinator = coordinator
-    }
+    // Coordinator is @State so it can be rebuilt once the user saves their client ID.
+    @State private var coordinator: AuthCoordinator = .makeDefault()
+
+    // Client ID setup form
+    @State private var showSetup: Bool = false
+    @State private var clientIDInput: String = ""
+    @State private var clientIDSaveError: String?
+
+    private let keychain = LiveKeychainService()
+
+    public init() {}
 
     public var body: some View {
         VStack(spacing: 24) {
@@ -28,6 +35,24 @@ public struct SignInView: View {
                     .multilineTextAlignment(.center)
             }
 
+            if showSetup {
+                clientIDSetupForm
+            } else {
+                signInSection
+            }
+
+            Spacer()
+            Spacer()
+        }
+        .padding(40)
+        .frame(minWidth: 480, minHeight: 400)
+        .task { checkSetupRequired() }
+    }
+
+    // MARK: - Sign-in section
+
+    private var signInSection: some View {
+        VStack(spacing: 16) {
             if let error = authState.error {
                 Text(error.localizedDescription)
                     .font(.callout)
@@ -41,10 +66,7 @@ public struct SignInView: View {
                 Task { await coordinator.signIn(state: authState) }
             } label: {
                 HStack {
-                    if authState.isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
+                    if authState.isLoading { ProgressView().controlSize(.small) }
                     Text(authState.isLoading ? "Signing in…" : "Sign in with Google")
                 }
                 .frame(minWidth: 200)
@@ -54,26 +76,102 @@ public struct SignInView: View {
             .disabled(authState.isLoading)
             .accessibilityLabel(authState.isLoading ? "Signing in, please wait" : "Sign in with Google")
 
-            Spacer()
-            Spacer()
+            Button("Change OAuth Client ID") { showSetup = true }
+                .buttonStyle(.borderless)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
-        .padding(40)
-        .frame(minWidth: 420, minHeight: 360)
-        .task { coordinator.restoreSession(state: authState) }
+    }
+
+    // MARK: - First-run / client ID setup form
+
+    private var clientIDSetupForm: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("OAuth Client ID required", systemImage: "key.fill")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            Text("Create a **Desktop app** OAuth 2.0 client in Google Cloud Console (APIs & Services → Credentials), then paste the Client ID below. It is stored only in your macOS Keychain.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Paste Client ID  (e.g. 123456789-abc…apps.googleusercontent.com)", text: $clientIDInput)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+                .accessibilityLabel("Google OAuth Client ID")
+
+            if let saveError = clientIDSaveError {
+                Text(saveError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Button("Save & Continue") { saveClientID() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(clientIDInput.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                if (try? keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.clientID)) != nil {
+                    Button("Cancel") { showSetup = false }
+                        .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Private helpers
+
+    private func checkSetupRequired() {
+        let stored = try? keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.clientID)
+        if stored == nil || stored?.isEmpty == true {
+            showSetup = true
+        } else {
+            coordinator.restoreSession(state: authState)
+        }
+    }
+
+    private func saveClientID() {
+        let trimmed = clientIDInput.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+
+        do {
+            try keychain.store(trimmed, forKey: OAuthConfiguration.KeychainKey.clientID)
+        } catch {
+            clientIDSaveError = "Could not save to Keychain: \(error.localizedDescription)"
+            return
+        }
+
+        // Rebuild coordinator with the new client ID.
+        coordinator = AuthCoordinator(
+            configuration: OAuthConfiguration(
+                clientID: trimmed,
+                redirectURI: URL(string: "http://127.0.0.1")!
+            )
+        )
+        clientIDSaveError = nil
+        showSetup = false
+        authState.error = nil
     }
 }
 
 // MARK: - Default factory
 
 extension AuthCoordinator {
-    /// Production coordinator. Reads client_id from Keychain at start-up.
+    /// Reads client_id from Keychain. If absent the coordinator is still valid;
+    /// signIn() will surface .clientIDNotConfigured rather than hitting Google.
     @MainActor
     public static func makeDefault() -> AuthCoordinator {
         let keychain = LiveKeychainService()
         let clientID = (try? keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.clientID)) ?? ""
-        let redirectURI = URL(string: "http://127.0.0.1")! // AppAuth picks a free port at runtime.
         return AuthCoordinator(
-            configuration: OAuthConfiguration(clientID: clientID, redirectURI: redirectURI)
+            configuration: OAuthConfiguration(
+                clientID: clientID,
+                redirectURI: URL(string: "http://127.0.0.1")!
+            )
         )
     }
 }

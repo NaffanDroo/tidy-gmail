@@ -94,6 +94,11 @@ public final class AuthCoordinator {
     }
 
     public func signIn(state: AuthState) async {
+        guard !configuration.clientID.isEmpty else {
+            state.error = .clientIDNotConfigured
+            return
+        }
+
         state.isLoading = true
         state.error = nil
         defer { state.isLoading = false }

@@ -71,6 +71,30 @@ final class SignInFeatureTests: XCTestCase {
         XCTAssertNil(try mockKeychain.retrieve(forKey: OAuthConfiguration.KeychainKey.accessToken))
     }
 
+    // MARK: - Scenario: missing client ID
+
+    func test_givenEmptyClientID_whenSignIn_thenClientIDNotConfiguredErrorIsSet() async {
+        // Given — coordinator built with empty client ID (no Keychain entry)
+        coordinator = AuthCoordinator(
+            oauthManager: mockOAuth,
+            keychain: mockKeychain,
+            configuration: OAuthConfiguration(
+                clientID: "",
+                redirectURI: URL(string: "http://127.0.0.1")!
+            )
+        )
+
+        // When
+        await coordinator.signIn(state: authState)
+
+        // Then — OAuth manager must NOT have been called
+        XCTAssertEqual(mockOAuth.signInCallCount, 0)
+        XCTAssertFalse(authState.isSignedIn)
+        if case .clientIDNotConfigured = authState.error { } else {
+            XCTFail("Expected .clientIDNotConfigured, got \(String(describing: authState.error))")
+        }
+    }
+
     // MARK: - Scenario: sign-out
 
     func test_givenSignedInUser_whenSignOut_thenAllTokensRemovedFromKeychain() throws {
