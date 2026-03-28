@@ -13,12 +13,13 @@
 set -euo pipefail
 
 PROJECT_ID=""
-CREATE_PROJECT=true
+CREATE_PROJECT=""   # empty = ask the user
 
 for arg in "$@"; do
     case "$arg" in
         --project=*) PROJECT_ID="${arg#--project=}"; CREATE_PROJECT=false ;;
         --project)   shift; PROJECT_ID="$1"; CREATE_PROJECT=false ;;
+        --new)       CREATE_PROJECT=true ;;
     esac
 done
 
@@ -43,16 +44,33 @@ fi
 
 # ── Project ────────────────────────────────────────────────────────────────────
 
-if [[ -z "$PROJECT_ID" ]]; then
-    # Generate a random suffix without | head (avoids SIGPIPE under pipefail).
-    SUFFIX=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | dd bs=1 count=6 2>/dev/null || true)
-    PROJECT_ID="tidy-gmail-${SUFFIX}"
+if [[ -z "$CREATE_PROJECT" && -z "$PROJECT_ID" ]]; then
+    # Ask the user what they want to do.
+    echo ""
+    EXISTING=$(gcloud projects list --format='value(projectId)' 2>/dev/null || true)
+
+    if [[ -n "$EXISTING" ]]; then
+        echo "Your existing Google Cloud projects:"
+        echo "$EXISTING" | while IFS= read -r pid; do echo "  $pid"; done
+        echo ""
+        read -rp "Use an existing project, or create a new one? [existing/new]: " CHOICE
+    else
+        echo "No existing Google Cloud projects found."
+        CHOICE="new"
+    fi
+
+    case "$CHOICE" in
+        new|n|N)   CREATE_PROJECT=true ;;
+        *)         CREATE_PROJECT=false
+                   read -rp "Project ID to use: " PROJECT_ID ;;
+    esac
 fi
 
-if [[ "$CREATE_PROJECT" == true ]]; then
+if [[ "$CREATE_PROJECT" == true && -z "$PROJECT_ID" ]]; then
+    SUFFIX=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | dd bs=1 count=6 2>/dev/null || true)
+    PROJECT_ID="tidy-gmail-${SUFFIX}"
+    echo ""
     echo "→ Creating Google Cloud project: $PROJECT_ID"
-    # Suppress "already exists" without piping gcloud output through grep
-    # (grep closing the pipe causes SIGPIPE → exit 141 under pipefail).
     CREATE_OUT=$(gcloud projects create "$PROJECT_ID" --name="Tidy Gmail" 2>&1 || true)
     if [[ -n "$CREATE_OUT" ]] && ! echo "$CREATE_OUT" | grep -qi "already exists"; then
         echo "$CREATE_OUT"
@@ -78,10 +96,13 @@ ACTIVE_ACCOUNT=$(gcloud auth list \
 
 # iap oauth-brands create is best-effort; it may fail if the consent screen
 # is already configured or if the alpha component is not installed.
+# Do NOT redirect stderr — gcloud alpha may prompt to install the component,
+# and silencing that makes it appear to hang waiting for hidden input.
 gcloud alpha iap oauth-brands create \
     --application_title="Tidy Gmail" \
     --support_email="$ACTIVE_ACCOUNT" \
-    --project="$PROJECT_ID" 2>/dev/null || true
+    --project="$PROJECT_ID" \
+    --quiet || true
 
 # ── Enable Gmail API ───────────────────────────────────────────────────────────
 
