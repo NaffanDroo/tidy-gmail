@@ -2,21 +2,26 @@ import Foundation
 @testable import TidyGmailCore
 
 final class MockOAuthManager: OAuthManager, @unchecked Sendable {
-    var signInResult: Result<OAuthTokens, Error> = .success(
-        OAuthTokens(accessToken: "test-access-token", refreshToken: "test-refresh-token")
-    )
+    var signInResult: Result<Void, Error> = .success(())
     var signInCallCount = 0
     var signOutCallCount = 0
+    var restoreSessionResult = false
+    var freshAccessTokenResult: Result<String, Error> = .success("test-access-token")
 
-    func signIn(configuration: OAuthConfiguration) async throws -> OAuthTokens {
+    func signIn(configuration: OAuthConfiguration) async throws {
         signInCallCount += 1
-        return try signInResult.get()
+        try signInResult.get()
     }
 
-    func signOut(configuration: OAuthConfiguration, keychain: any KeychainService) throws {
+    func signOut() throws {
         signOutCallCount += 1
-        try keychain.delete(forKey: OAuthConfiguration.KeychainKey.accessToken)
-        try keychain.delete(forKey: OAuthConfiguration.KeychainKey.refreshToken)
-        try keychain.delete(forKey: OAuthConfiguration.KeychainKey.userEmail)
+    }
+
+    func restoreSession() throws -> Bool {
+        restoreSessionResult
+    }
+
+    func freshAccessToken() async throws -> String {
+        try freshAccessTokenResult.get()
     }
 }

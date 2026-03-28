@@ -20,7 +20,7 @@ public final class EmailListViewModel {
     private let client: any GmailAPIClient
     private var nextPageToken: String?
 
-    public init(client: any GmailAPIClient = LiveGmailAPIClient()) {
+    public init(client: any GmailAPIClient) {
         self.client = client
     }
 

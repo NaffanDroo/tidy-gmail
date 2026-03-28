@@ -13,7 +13,6 @@ public final class AuthState {
 }
 
 public enum AuthError: Error, LocalizedError {
-    case keychainUnavailable
     case clientIDNotConfigured
     case signInCancelled
     case signInFailed(underlying: Error)
@@ -21,8 +20,6 @@ public enum AuthError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .keychainUnavailable:
-            return "Keychain is unavailable. Please check System Settings > Privacy & Security."
         case .clientIDNotConfigured:
             return "OAuth client ID is not configured. See the setup guide in README.md."
         case .signInCancelled:

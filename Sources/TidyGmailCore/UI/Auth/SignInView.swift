@@ -3,9 +3,10 @@ import SwiftUI
 @MainActor
 public struct SignInView: View {
     @Environment(AuthState.self) private var authState
+    @Environment(AppAuthOAuthManager.self) private var oauthManager
 
     // Coordinator is @State so it can be rebuilt once the user saves their client ID.
-    @State private var coordinator: AuthCoordinator = .makeDefault()
+    @State private var coordinator: AuthCoordinator?
 
     // Client ID setup form
     @State private var showSetup: Bool = false
@@ -63,7 +64,7 @@ public struct SignInView: View {
             }
 
             Button {
-                Task { await coordinator.signIn(state: authState) }
+                Task { await coordinator?.signIn(state: authState) }
             } label: {
                 HStack {
                     if authState.isLoading { ProgressView().controlSize(.small) }
@@ -138,7 +139,9 @@ public struct SignInView: View {
         if !hasStoredClientID {
             showSetup = true
         } else {
-            coordinator.restoreSession(state: authState)
+            let coord = makeCoordinator()
+            coordinator = coord
+            coord.restoreSession(state: authState)
         }
     }
 
@@ -153,24 +156,19 @@ public struct SignInView: View {
 
         // Rebuild coordinator with the new credentials.
         coordinator = AuthCoordinator(
+            oauthManager: oauthManager,
             configuration: OAuthConfiguration(clientID: trimmedID, clientSecret: trimmedSecret)
         )
         clientIDSaveError = nil
         showSetup = false
         authState.error = nil
     }
-}
 
-// MARK: - Default factory
-
-extension AuthCoordinator {
-    /// Reads client_id from app preferences. If absent the coordinator is still valid;
-    /// signIn() will surface .clientIDNotConfigured rather than hitting Google.
-    @MainActor
-    public static func makeDefault() -> AuthCoordinator {
+    private func makeCoordinator() -> AuthCoordinator {
         let clientID     = AppPreferences.clientID ?? ""
         let clientSecret = AppPreferences.clientSecret
         return AuthCoordinator(
+            oauthManager: oauthManager,
             configuration: OAuthConfiguration(clientID: clientID, clientSecret: clientSecret)
         )
     }

@@ -2,8 +2,9 @@ import SwiftUI
 
 @MainActor
 public struct EmailListView: View {
-    @State private var viewModel = EmailListViewModel()
+    @State private var viewModel: EmailListViewModel?
     @Environment(AuthState.self) private var authState
+    @Environment(AppAuthOAuthManager.self) private var oauthManager
 
     public init() {}
 
@@ -16,33 +17,45 @@ public struct EmailListView: View {
         }
         .navigationTitle("Tidy Gmail")
         .toolbar { toolbarContent }
+        .task {
+            if viewModel == nil {
+                viewModel = EmailListViewModel(client: LiveGmailAPIClient(tokenProvider: oauthManager))
+            }
+        }
     }
 
     // MARK: - Subviews
 
     private var sidebarContent: some View {
-        VStack(spacing: 0) {
-            searchBar
+        Group {
+            if let viewModel {
+                VStack(spacing: 0) {
+                    searchBar(viewModel: viewModel)
 
-            if viewModel.isLoading {
-                loadingView
-            } else if let error = viewModel.error {
-                errorView(error)
-            } else if viewModel.messages.isEmpty && !viewModel.searchText.isEmpty {
-                emptyStateView
+                    if viewModel.isLoading {
+                        loadingView
+                    } else if let error = viewModel.error {
+                        errorView(error)
+                    } else if viewModel.messages.isEmpty && !viewModel.searchText.isEmpty {
+                        emptyStateView
+                    } else {
+                        messageList(viewModel: viewModel)
+                    }
+                }
             } else {
-                messageList
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
-    private var searchBar: some View {
+    private func searchBar(viewModel: EmailListViewModel) -> some View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
 
-            TextField("Search mail (Gmail syntax supported)", text: $viewModel.searchText)
+            TextField("Search mail (Gmail syntax supported)", text: Bindable(viewModel).searchText)
                 .textFieldStyle(.plain)
                 .onSubmit { Task { await viewModel.search() } }
                 .accessibilityLabel("Search emails")
@@ -54,7 +67,7 @@ public struct EmailListView: View {
         .padding(.vertical, 8)
     }
 
-    private var messageList: some View {
+    private func messageList(viewModel: EmailListViewModel) -> some View {
         List {
             ForEach(viewModel.messages) { message in
                 EmailRowView(message: message)
@@ -62,14 +75,14 @@ public struct EmailListView: View {
             }
 
             if viewModel.hasMorePages {
-                loadMoreButton
+                loadMoreButton(viewModel: viewModel)
             }
         }
         .listStyle(.plain)
         .accessibilityLabel("Email list, \(viewModel.messages.count) messages")
     }
 
-    private var loadMoreButton: some View {
+    private func loadMoreButton(viewModel: EmailListViewModel) -> some View {
         HStack {
             Spacer()
             Button("Load more") { Task { await viewModel.loadNextPage() } }

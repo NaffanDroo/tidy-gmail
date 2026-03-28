@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 public struct TidyGmailApp: App {
     @State private var authState = AuthState()
+    @State private var oauthManager = AppAuthOAuthManager()
 
     public init() {}
 
@@ -10,6 +11,7 @@ public struct TidyGmailApp: App {
         WindowGroup {
             RootView()
                 .environment(authState)
+                .environment(oauthManager)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)

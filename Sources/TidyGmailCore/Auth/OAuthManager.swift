@@ -1,19 +1,25 @@
 import AppKit
 @preconcurrency import AppAuth
+import Observation
 
-// MARK: - Protocol
+// MARK: - Token provider
 
-/// Abstracts the OAuth flow so it can be replaced with a mock in tests.
-public protocol OAuthManager: Sendable {
-    func signIn(configuration: OAuthConfiguration) async throws -> OAuthTokens
-    func signOut(configuration: OAuthConfiguration, keychain: any KeychainService) throws
+/// Anything that can vend a fresh (auto-refreshed) access token.
+public protocol TokenProvider: Sendable {
+    func freshAccessToken() async throws -> String
+}
+
+// MARK: - OAuthManager protocol
+
+public protocol OAuthManager: TokenProvider {
+    func signIn(configuration: OAuthConfiguration) async throws
+    func signOut() throws
+    /// Loads a persisted session from storage. Returns true if a session was found.
+    func restoreSession() throws -> Bool
 }
 
 // MARK: - Browser user agent
 
-/// Minimal OIDExternalUserAgent that opens the authorization URL in the default browser.
-/// The redirect is caught by OIDRedirectHTTPHandler's local HTTP listener — no
-/// ASWebAuthenticationSession or custom URL scheme required.
 private final class BrowserUserAgent: NSObject, OIDExternalUserAgent {
     func present(_ request: any OIDExternalUserAgentRequest, session: any OIDExternalUserAgentSession) -> Bool {
         guard let url = request.externalUserAgentRequestURL() else { return false }
@@ -26,27 +32,24 @@ private final class BrowserUserAgent: NSObject, OIDExternalUserAgent {
     }
 }
 
-// MARK: - Live implementation (AppAuth / PKCE)
+// MARK: - Live implementation
 
-public final class AppAuthOAuthManager: OAuthManager {
-    // Held strongly to keep the in-flight session and HTTP listener alive.
-    private nonisolated(unsafe) var currentSession: (any OIDExternalUserAgentSession)?
-    private nonisolated(unsafe) var redirectHandler: OIDRedirectHTTPHandler?
+@Observable
+public final class AppAuthOAuthManager: OAuthManager, @unchecked Sendable {
+    @ObservationIgnored private nonisolated(unsafe) var authState: OIDAuthState?
+    @ObservationIgnored private nonisolated(unsafe) var currentSession: (any OIDExternalUserAgentSession)?
+    @ObservationIgnored private nonisolated(unsafe) var redirectHandler: OIDRedirectHTTPHandler?
 
     public init() {}
 
-    public func signIn(configuration: OAuthConfiguration) async throws -> OAuthTokens {
+    public func signIn(configuration: OAuthConfiguration) async throws {
         let serviceConfig = OIDServiceConfiguration(
             authorizationEndpoint: OAuthConfiguration.authorizationEndpoint,
             tokenEndpoint: OAuthConfiguration.tokenEndpoint
         )
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let newAuthState: OIDAuthState = try await withCheckedThrowingContinuation { continuation in
             Task { @MainActor in
-                // OIDRedirectHTTPHandler starts a local HTTP server on a random high port
-                // and returns http://localhost:PORT/ as the redirect URI.
-                // Google allows any http://localhost redirect for Desktop app OAuth clients
-                // without requiring explicit registration in the Cloud Console.
                 let handler = OIDRedirectHTTPHandler(successURL: nil)
                 let redirectURI = handler.startHTTPListener(nil)
 
@@ -69,35 +72,46 @@ public final class AppAuthOAuthManager: OAuthManager {
                         continuation.resume(throwing: OAuthError.authorizationFailed(error))
                         return
                     }
-                    guard
-                        let authState,
-                        let accessToken = authState.lastTokenResponse?.accessToken,
-                        let refreshToken = authState.lastTokenResponse?.refreshToken
-                    else {
+                    guard let authState else {
                         continuation.resume(throwing: OAuthError.missingTokens)
                         return
                     }
-                    continuation.resume(returning: OAuthTokens(
-                        accessToken: accessToken,
-                        refreshToken: refreshToken
-                    ))
+                    continuation.resume(returning: authState)
                 }
-                // Connect the HTTP listener to the active session so it can
-                // resume the flow when the browser hits the redirect URI.
                 handler.currentAuthorizationFlow = self.currentSession
                 self.redirectHandler = handler
             }
         }
+
+        authState = newAuthState
     }
 
-    public func signOut(configuration: OAuthConfiguration, keychain: any KeychainService) throws {
+    public func signOut() throws {
         currentSession?.cancel()
         currentSession = nil
         redirectHandler = nil
-        try keychain.delete(forKey: OAuthConfiguration.KeychainKey.accessToken)
-        try keychain.delete(forKey: OAuthConfiguration.KeychainKey.refreshToken)
-        try keychain.delete(forKey: OAuthConfiguration.KeychainKey.userEmail)
+        authState = nil
     }
+
+    public func restoreSession() throws -> Bool {
+        return false
+    }
+
+    public func freshAccessToken() async throws -> String {
+        guard let authState else { throw OAuthError.notSignedIn }
+        return try await withCheckedThrowingContinuation { continuation in
+            authState.performAction { accessToken, _, error in
+                if let error {
+                    continuation.resume(throwing: OAuthError.refreshFailed(error))
+                } else if let accessToken {
+                    continuation.resume(returning: accessToken)
+                } else {
+                    continuation.resume(throwing: OAuthError.missingTokens)
+                }
+            }
+        }
+    }
+
 }
 
 // MARK: - Auth coordinator
@@ -106,16 +120,13 @@ public final class AppAuthOAuthManager: OAuthManager {
 @MainActor
 public final class AuthCoordinator {
     private let oauthManager: any OAuthManager
-    private let keychain: any KeychainService
     private let configuration: OAuthConfiguration
 
     public init(
         oauthManager: any OAuthManager = AppAuthOAuthManager(),
-        keychain: any KeychainService = LiveKeychainService(),
         configuration: OAuthConfiguration
     ) {
         self.oauthManager = oauthManager
-        self.keychain = keychain
         self.configuration = configuration
     }
 
@@ -130,9 +141,7 @@ public final class AuthCoordinator {
         defer { state.isLoading = false }
 
         do {
-            let tokens = try await oauthManager.signIn(configuration: configuration)
-            try keychain.store(tokens.accessToken, forKey: OAuthConfiguration.KeychainKey.accessToken)
-            try keychain.store(tokens.refreshToken, forKey: OAuthConfiguration.KeychainKey.refreshToken)
+            try await oauthManager.signIn(configuration: configuration)
             state.isSignedIn = true
         } catch let error as OAuthError where isUserCancellation(error) {
             state.error = .signInCancelled
@@ -143,9 +152,9 @@ public final class AuthCoordinator {
 
     public func signOut(state: AuthState) {
         do {
-            try oauthManager.signOut(configuration: configuration, keychain: keychain)
+            try oauthManager.signOut()
         } catch {
-            // Keychain deletion failure is non-fatal — clear state regardless.
+            // Sign-out failure is non-fatal — clear state regardless.
         }
         state.isSignedIn = false
         state.userEmail = nil
@@ -153,9 +162,7 @@ public final class AuthCoordinator {
 
     public func restoreSession(state: AuthState) {
         do {
-            let token = try keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.accessToken)
-            state.isSignedIn = token != nil
-            state.userEmail = try keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.userEmail)
+            state.isSignedIn = try oauthManager.restoreSession()
         } catch {
             state.isSignedIn = false
         }

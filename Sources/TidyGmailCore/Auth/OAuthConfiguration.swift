@@ -1,14 +1,6 @@
 import Foundation
 
 public struct OAuthConfiguration: Sendable {
-    // Keychain key names — never change these once tokens are in production Keychain entries.
-    // Note: client_id is NOT stored in Keychain (it's not a secret under PKCE). Use AppPreferences.
-    public enum KeychainKey {
-        public static let accessToken = "access_token"
-        public static let refreshToken = "refresh_token"
-        public static let userEmail = "user_email"
-    }
-
     // Google OAuth endpoints.
     public static let authorizationEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     public static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
@@ -39,18 +31,6 @@ public struct OAuthConfiguration: Sendable {
     }
 }
 
-// MARK: - Tokens
-
-public struct OAuthTokens: Sendable {
-    public let accessToken: String
-    public let refreshToken: String
-
-    public init(accessToken: String, refreshToken: String) {
-        self.accessToken = accessToken
-        self.refreshToken = refreshToken
-    }
-}
-
 // MARK: - Errors
 
 public enum OAuthError: Error, LocalizedError {
@@ -60,6 +40,7 @@ public enum OAuthError: Error, LocalizedError {
     case refreshFailed(Error)
     case noWindowAvailable
     case redirectServerFailed
+    case notSignedIn
 
     public var errorDescription: String? {
         switch self {
@@ -75,6 +56,8 @@ public enum OAuthError: Error, LocalizedError {
             return "No window available to present sign-in."
         case .redirectServerFailed:
             return "Could not start the local redirect server."
+        case .notSignedIn:
+            return "Not signed in."
         }
     }
 }
