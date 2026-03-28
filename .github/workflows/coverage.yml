@@ -25,9 +25,19 @@ jobs:
       - name: Generate coverage report
         id: coverage
         run: |
-          BIN_PATH="$(swift build --show-bin-path)"
           PROFDATA="$(find .build -name default.profdata -type f | head -1)"
-          TEST_BIN="$BIN_PATH/TidyGmailTests.xctest/Contents/MacOS/TidyGmailTests"
+          if [[ -z "$PROFDATA" ]]; then
+            echo "::error::No profdata file found — did 'swift test --enable-code-coverage' run?"
+            exit 1
+          fi
+
+          # Locate the test binary; SPM may place it inside an xctest bundle or directly
+          # in the build directory depending on Swift/Xcode version.
+          TEST_BIN="$(find .build -type f -name "TidyGmailTests" -not -path "*.dSYM/*" 2>/dev/null | head -1)"
+          if [[ -z "$TEST_BIN" ]]; then
+            echo "::error::Could not find TidyGmailTests binary under .build/"
+            exit 1
+          fi
 
           EXCLUDE='\.build|Tests/|main\.swift'
 
