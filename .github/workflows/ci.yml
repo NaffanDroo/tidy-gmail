@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: swift build -c release 2>&1 | tee build.log
+
+      - name: Build (warnings as errors)
+        run: swift build -Xswiftc -warnings-as-errors 2>&1
+
+      - name: Run all tests
+        run: swift test --parallel 2>&1
+
+      - name: Run BDD feature tests only
+        run: swift test --filter "FeatureSpec" 2>&1

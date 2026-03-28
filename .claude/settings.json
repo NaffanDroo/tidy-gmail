@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s https://raw.githubusercontent.com/NaffanDroo/mcmac-window/main/.github/ISSUE_TEMPLATE/bug_report.md)",
+      "Bash(curl -s https://raw.githubusercontent.com/NaffanDroo/mcmac-window/main/.github/ISSUE_TEMPLATE/feature_request.md)",
+      "Bash(curl -s https://raw.githubusercontent.com/NaffanDroo/mcmac-window/main/.github/ISSUE_TEMPLATE/chore.md)",
+      "Bash(gh repo:*)",
+      "Bash(gh label:*)",
+      "Bash(swift package:*)",
+      "Bash(swift build:*)",
+      "Bash(swift test:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

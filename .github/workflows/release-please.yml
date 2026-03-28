@@ -1,0 +1,86 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # Step 1: Run release-please to determine if a release is ready.
+  # Uses skip-github-pull-request to avoid API race conditions with step 3.
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      upload_url: ${{ steps.release.outputs.upload_url }}
+    steps:
+      - uses: googleapis/release-please-action@a02a34c6a6a793ea7b8fd98fbe46e7a34fcca089 # v4.2.0
+        id: release
+        with:
+          release-type: simple
+          skip-github-pull-request: true
+
+  # Step 2: Build the notarised DMG and attach it to the draft release.
+  # Only runs when release-please has actually created a release tag.
+  build-and-publish:
+    name: Build & Attach DMG
+    runs-on: macos-15
+    needs: create-release
+    if: needs.create-release.outputs.release_created == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build release archive
+        run: |
+          xcodebuild \
+            -scheme TidyGmail \
+            -destination 'platform=macOS' \
+            -archivePath build/TidyGmail.xcarchive \
+            archive
+
+      # TODO: Add notarisation step once Apple Developer credentials are available.
+      # Requires APPLE_DEVELOPER_CERT, APPLE_DEVELOPER_PASSWORD, APPLE_TEAM_ID secrets.
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ needs.create-release.outputs.tag_name }}"
+          hdiutil create \
+            -volname "TidyGmail ${VERSION}" \
+            -srcfolder build/TidyGmail.xcarchive/Products/Applications/TidyGmail.app \
+            -ov -format UDZO \
+            "TidyGmail-${VERSION}.dmg"
+
+      - name: Wrap DMG as ZIP (preserve resource forks)
+        run: |
+          VERSION="${{ needs.create-release.outputs.tag_name }}"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "TidyGmail-${VERSION}.dmg" \
+            "TidyGmail-${VERSION}.dmg.zip"
+
+      - name: Upload release asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.create-release.outputs.tag_name }}"
+          gh release upload "${VERSION}" "TidyGmail-${VERSION}.dmg.zip"
+
+  # Step 3: Create or update the next release PR.
+  # Runs after build-and-publish to avoid GitHub API race conditions.
+  update-release-pr:
+    name: Update Release PR
+    runs-on: ubuntu-latest
+    needs: [create-release, build-and-publish]
+    if: always() && needs.create-release.result == 'success'
+    steps:
+      - uses: googleapis/release-please-action@a02a34c6a6a793ea7b8fd98fbe46e7a34fcca089 # v4.2.0
+        with:
+          release-type: simple
+          skip-github-release: true

@@ -1,0 +1,3 @@
+import TidyGmailCore
+
+TidyGmailApp.main()

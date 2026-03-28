@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+*.swp
+
+# Xcode / Swift
+DerivedData/
+.build/
+*.xcuserdata
+*.xcworkspace/xcuserdata
+*.xcuserstate
+*.xcscmblueprint
+build/
+
+# Credentials — NEVER commit these
+token.json
+credentials.json
+client_secret*.json
+*.p12
+*.pem
+*.mobileprovision
+*.cer
+GoogleService-Info.plist
+xcconfig/secrets.xcconfig
+
+# Build artefacts
+*.dmg
+*.zip
+*.app/
+
+# Logs
+*.log
