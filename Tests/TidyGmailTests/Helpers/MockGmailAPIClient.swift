@@ -4,9 +4,14 @@ import Foundation
 final class MockGmailAPIClient: GmailAPIClient, @unchecked Sendable {
     var searchResult: Result<([GmailMessage], String?), Error> = .success(([], nil))
     var fetchMessageResult: Result<GmailMessage, Error> = .failure(GmailAPIError.invalidResponse)
+    var trashResult: Result<Void, Error> = .success(())
+    var deleteResult: Result<Void, Error> = .success(())
+
     var searchCallCount = 0
     var lastSearchQuery: GmailSearchQuery?
     var lastPageToken: String?
+    var trashedIDs: [String] = []
+    var deletedIDs: [String] = []
 
     func searchMessages(
         query: GmailSearchQuery,
@@ -21,6 +26,16 @@ final class MockGmailAPIClient: GmailAPIClient, @unchecked Sendable {
 
     func fetchMessage(id: String) async throws -> GmailMessage {
         try fetchMessageResult.get()
+    }
+
+    func trashMessages(ids: [String]) async throws {
+        try trashResult.get()
+        trashedIDs.append(contentsOf: ids)
+    }
+
+    func deleteMessages(ids: [String]) async throws {
+        try deleteResult.get()
+        deletedIDs.append(contentsOf: ids)
     }
 }
 
