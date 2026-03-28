@@ -177,8 +177,18 @@ Rationale:
 ## Core Features
 
 ### 1. Gmail OAuth Authentication
-- PKCE flow via `AppAuth` library; no client secret stored in the repo.
-- `client_id` stored in Keychain under `com.tidygmail.oauth.client_id`.
+- PKCE flow via `AppAuth` library; no client secret required or stored.
+- `client_id` is **not a secret** when using PKCE (RFC 8252 §8.4) — it identifies the app, not a user. Safe to bundle in the binary for a shipped app.
+- Distribution strategy by phase:
+
+| Phase | Where `client_id` lives | User experience |
+|---|---|---|
+| **Dev** | Each developer's own Keychain — run `scripts/setup-google-oauth.sh` | In-app setup form on first launch |
+| **Testing** | Shared dev credential in `xcconfig/dev.xcconfig` (gitignored) | In-app setup form, or pre-seeded by test script |
+| **Shipped app** | Compiled into the binary via a build-time xcconfig | Invisible — just a "Sign in with Google" button |
+
+- When shipping: add `TIDY_GMAIL_CLIENT_ID = 123…apps.googleusercontent.com` to a gitignored `xcconfig/release.xcconfig`, read it at compile time via `Bundle.main.infoDictionary`, and remove the in-app setup form. The client_id being in the binary is expected and fine.
+- Google OAuth app verification is required before the app can be used by more than 100 accounts without a warning screen. See: Google Cloud Console → APIs & Services → OAuth consent screen → Publish app.
 - Access tokens and refresh tokens stored in Keychain, never on disk in plaintext.
 - Scopes requested: `https://www.googleapis.com/auth/gmail.modify` (minimum viable; allows read + delete but not full account access).
 - Token refresh handled transparently by `AppAuth`.
