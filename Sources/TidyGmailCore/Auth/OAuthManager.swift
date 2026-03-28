@@ -35,7 +35,7 @@ public final class AppAuthOAuthManager: OAuthManager {
 
         return try await withCheckedThrowingContinuation { continuation in
             Task { @MainActor in
-                guard let window = await NSApplication.shared.mainWindow else {
+                guard let window = NSApplication.shared.mainWindow else {
                     continuation.resume(throwing: OAuthError.noWindowAvailable)
                     return
                 }
