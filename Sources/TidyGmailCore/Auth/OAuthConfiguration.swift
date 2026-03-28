@@ -9,13 +9,13 @@ public struct OAuthConfiguration: Sendable {
     public static let readOnlyScopes = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/userinfo.email",
-        "openid",
+        "openid"
     ]
 
     public static let modifyScopes = [
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/userinfo.email",
-        "openid",
+        "openid"
     ]
 
     public let clientID: String

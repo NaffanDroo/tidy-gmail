@@ -71,7 +71,9 @@ final class ConcurrencyTracker: @unchecked Sendable {
 final class ConcurrencyTrackingURLProtocol: URLProtocol, @unchecked Sendable {
     static var tracker: ConcurrencyTracker!
 
+    // swiftlint:disable:next static_over_final_class
     override class func canInit(with request: URLRequest) -> Bool { true }
+    // swiftlint:disable:next static_over_final_class
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
@@ -84,9 +86,9 @@ final class ConcurrencyTrackingURLProtocol: URLProtocol, @unchecked Sendable {
 
         // List request: /gmail/v1/users/me/messages (but not a specific message)
         if path.hasSuffix("/messages") && !path.contains("/messages/") {
-            let refs = (1...20).map { i in
+            let refs = (1...20).map { idx in
                 """
-                {"id":"msg-\(i)","threadId":"thread-\(i)"}
+                {"id":"msg-\(idx)","threadId":"thread-\(idx)"}
                 """
             }.joined(separator: ",")
             let json = """

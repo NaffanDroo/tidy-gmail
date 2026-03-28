@@ -36,9 +36,9 @@ private final class BrowserUserAgent: NSObject, OIDExternalUserAgent {
 
 @Observable
 public final class AppAuthOAuthManager: OAuthManager, @unchecked Sendable {
-    @ObservationIgnored private nonisolated(unsafe) var authState: OIDAuthState?
-    @ObservationIgnored private nonisolated(unsafe) var currentSession: (any OIDExternalUserAgentSession)?
-    @ObservationIgnored private nonisolated(unsafe) var redirectHandler: OIDRedirectHTTPHandler?
+    @ObservationIgnored nonisolated(unsafe) private var authState: OIDAuthState?
+    @ObservationIgnored nonisolated(unsafe) private var currentSession: (any OIDExternalUserAgentSession)?
+    @ObservationIgnored nonisolated(unsafe) private var redirectHandler: OIDRedirectHTTPHandler?
 
     public init() {}
 

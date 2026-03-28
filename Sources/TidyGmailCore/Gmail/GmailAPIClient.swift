@@ -44,7 +44,7 @@ public final class LiveGmailAPIClient: GmailAPIClient {
         var components = URLComponents(url: baseURL.appendingPathComponent("messages"), resolvingAgainstBaseURL: true)!
         var queryItems = [
             URLQueryItem(name: "q", value: query.rawQuery),
-            URLQueryItem(name: "maxResults", value: String(query.maxResults)),
+            URLQueryItem(name: "maxResults", value: String(query.maxResults))
         ]
         if let pageToken {
             queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
@@ -93,7 +93,7 @@ public final class LiveGmailAPIClient: GmailAPIClient {
             URLQueryItem(name: "format", value: "metadata"),
             URLQueryItem(name: "metadataHeaders", value: "From"),
             URLQueryItem(name: "metadataHeaders", value: "Subject"),
-            URLQueryItem(name: "metadataHeaders", value: "Date"),
+            URLQueryItem(name: "metadataHeaders", value: "Date")
         ]
 
         let response: GmailMessageResponse = try await fetch(url: components.url!)

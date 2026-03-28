@@ -92,6 +92,7 @@ public struct SignInView: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
 
+            // swiftlint:disable:next line_length
             Text("Create a **Desktop app** OAuth 2.0 client in Google Cloud Console (APIs & Services → Credentials), then paste the Client ID below. It is stored only in app preferences.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
