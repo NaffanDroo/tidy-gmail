@@ -9,10 +9,10 @@ public struct SignInView: View {
 
     // Client ID setup form
     @State private var showSetup: Bool = false
+    @State private var hasStoredClientID: Bool = false  // set once in .task, never re-read in body
     @State private var clientIDInput: String = ""
+    @State private var clientSecretInput: String = ""
     @State private var clientIDSaveError: String?
-
-    private let keychain = LiveKeychainService()
 
     public init() {}
 
@@ -91,15 +91,20 @@ public struct SignInView: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
 
-            Text("Create a **Desktop app** OAuth 2.0 client in Google Cloud Console (APIs & Services → Credentials), then paste the Client ID below. It is stored only in your macOS Keychain.")
+            Text("Create a **Desktop app** OAuth 2.0 client in Google Cloud Console (APIs & Services → Credentials), then paste the Client ID below. It is stored only in app preferences.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Paste Client ID  (e.g. 123456789-abc…apps.googleusercontent.com)", text: $clientIDInput)
+            TextField("Client ID  (e.g. 123456789-abc…apps.googleusercontent.com)", text: $clientIDInput)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
                 .accessibilityLabel("Google OAuth Client ID")
+
+            SecureField("Client Secret", text: $clientSecretInput)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+                .accessibilityLabel("Google OAuth Client Secret")
 
             if let saveError = clientIDSaveError {
                 Text(saveError)
@@ -110,9 +115,10 @@ public struct SignInView: View {
             HStack {
                 Button("Save & Continue") { saveClientID() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(clientIDInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(clientIDInput.trimmingCharacters(in: .whitespaces).isEmpty ||
+                              clientSecretInput.trimmingCharacters(in: .whitespaces).isEmpty)
 
-                if (try? keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.clientID)) != nil {
+                if hasStoredClientID {
                     Button("Cancel") { showSetup = false }
                         .buttonStyle(.bordered)
                 }
@@ -126,8 +132,10 @@ public struct SignInView: View {
     // MARK: - Private helpers
 
     private func checkSetupRequired() {
-        let stored = try? keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.clientID)
-        if stored == nil || stored?.isEmpty == true {
+        let storedID     = AppPreferences.clientID
+        let storedSecret = AppPreferences.clientSecret
+        hasStoredClientID = storedID?.isEmpty == false && storedSecret?.isEmpty == false
+        if !hasStoredClientID {
             showSetup = true
         } else {
             coordinator.restoreSession(state: authState)
@@ -135,22 +143,17 @@ public struct SignInView: View {
     }
 
     private func saveClientID() {
-        let trimmed = clientIDInput.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
+        let trimmedID     = clientIDInput.trimmingCharacters(in: .whitespaces)
+        let trimmedSecret = clientSecretInput.trimmingCharacters(in: .whitespaces)
+        guard !trimmedID.isEmpty, !trimmedSecret.isEmpty else { return }
 
-        do {
-            try keychain.store(trimmed, forKey: OAuthConfiguration.KeychainKey.clientID)
-        } catch {
-            clientIDSaveError = "Could not save to Keychain: \(error.localizedDescription)"
-            return
-        }
+        AppPreferences.setClientID(trimmedID)
+        AppPreferences.setClientSecret(trimmedSecret)
+        hasStoredClientID = true
 
-        // Rebuild coordinator with the new client ID.
+        // Rebuild coordinator with the new credentials.
         coordinator = AuthCoordinator(
-            configuration: OAuthConfiguration(
-                clientID: trimmed,
-                redirectURI: URL(string: "http://127.0.0.1")!
-            )
+            configuration: OAuthConfiguration(clientID: trimmedID, clientSecret: trimmedSecret)
         )
         clientIDSaveError = nil
         showSetup = false
@@ -161,17 +164,14 @@ public struct SignInView: View {
 // MARK: - Default factory
 
 extension AuthCoordinator {
-    /// Reads client_id from Keychain. If absent the coordinator is still valid;
+    /// Reads client_id from app preferences. If absent the coordinator is still valid;
     /// signIn() will surface .clientIDNotConfigured rather than hitting Google.
     @MainActor
     public static func makeDefault() -> AuthCoordinator {
-        let keychain = LiveKeychainService()
-        let clientID = (try? keychain.retrieve(forKey: OAuthConfiguration.KeychainKey.clientID)) ?? ""
+        let clientID     = AppPreferences.clientID ?? ""
+        let clientSecret = AppPreferences.clientSecret
         return AuthCoordinator(
-            configuration: OAuthConfiguration(
-                clientID: clientID,
-                redirectURI: URL(string: "http://127.0.0.1")!
-            )
+            configuration: OAuthConfiguration(clientID: clientID, clientSecret: clientSecret)
         )
     }
 }

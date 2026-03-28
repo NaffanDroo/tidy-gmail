@@ -2,8 +2,8 @@ import Foundation
 
 public struct OAuthConfiguration: Sendable {
     // Keychain key names — never change these once tokens are in production Keychain entries.
+    // Note: client_id is NOT stored in Keychain (it's not a secret under PKCE). Use AppPreferences.
     public enum KeychainKey {
-        public static let clientID = "client_id"
         public static let accessToken = "access_token"
         public static let refreshToken = "refresh_token"
         public static let userEmail = "user_email"
@@ -27,12 +27,14 @@ public struct OAuthConfiguration: Sendable {
     ]
 
     public let clientID: String
-    public let redirectURI: URL
+    /// Google Desktop app clients issue a client_secret and require it in the token
+    /// exchange, even though it is not truly confidential for native apps (RFC 8252 §8.5).
+    public let clientSecret: String?
     public let scopes: [String]
 
-    public init(clientID: String, redirectURI: URL, scopes: [String] = OAuthConfiguration.readOnlyScopes) {
+    public init(clientID: String, clientSecret: String? = nil, scopes: [String] = OAuthConfiguration.readOnlyScopes) {
         self.clientID = clientID
-        self.redirectURI = redirectURI
+        self.clientSecret = clientSecret
         self.scopes = scopes
     }
 }
@@ -51,10 +53,28 @@ public struct OAuthTokens: Sendable {
 
 // MARK: - Errors
 
-public enum OAuthError: Error {
+public enum OAuthError: Error, LocalizedError {
     case clientIDNotFound
     case authorizationFailed(Error)
     case missingTokens
     case refreshFailed(Error)
     case noWindowAvailable
+    case redirectServerFailed
+
+    public var errorDescription: String? {
+        switch self {
+        case .clientIDNotFound:
+            return "OAuth client ID not found."
+        case .authorizationFailed(let underlying):
+            return underlying.localizedDescription
+        case .missingTokens:
+            return "Authorization succeeded but no tokens were returned."
+        case .refreshFailed(let underlying):
+            return "Token refresh failed: \(underlying.localizedDescription)"
+        case .noWindowAvailable:
+            return "No window available to present sign-in."
+        case .redirectServerFailed:
+            return "Could not start the local redirect server."
+        }
+    }
 }

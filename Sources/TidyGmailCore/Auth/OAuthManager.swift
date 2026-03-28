@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 @preconcurrency import AppAuth
 
 // MARK: - Protocol
@@ -9,11 +9,29 @@ public protocol OAuthManager: Sendable {
     func signOut(configuration: OAuthConfiguration, keychain: any KeychainService) throws
 }
 
+// MARK: - Browser user agent
+
+/// Minimal OIDExternalUserAgent that opens the authorization URL in the default browser.
+/// The redirect is caught by OIDRedirectHTTPHandler's local HTTP listener — no
+/// ASWebAuthenticationSession or custom URL scheme required.
+private final class BrowserUserAgent: NSObject, OIDExternalUserAgent {
+    func present(_ request: any OIDExternalUserAgentRequest, session: any OIDExternalUserAgentSession) -> Bool {
+        guard let url = request.externalUserAgentRequestURL() else { return false }
+        NSWorkspace.shared.open(url)
+        return true
+    }
+
+    func dismiss(animated: Bool, completion: @escaping () -> Void) {
+        completion()
+    }
+}
+
 // MARK: - Live implementation (AppAuth / PKCE)
 
 public final class AppAuthOAuthManager: OAuthManager {
-    // Holds the in-flight authorization session. Must be held strongly to prevent premature cancellation.
+    // Held strongly to keep the in-flight session and HTTP listener alive.
     private nonisolated(unsafe) var currentSession: (any OIDExternalUserAgentSession)?
+    private nonisolated(unsafe) var redirectHandler: OIDRedirectHTTPHandler?
 
     public init() {}
 
@@ -23,26 +41,29 @@ public final class AppAuthOAuthManager: OAuthManager {
             tokenEndpoint: OAuthConfiguration.tokenEndpoint
         )
 
-        let request = OIDAuthorizationRequest(
-            configuration: serviceConfig,
-            clientId: configuration.clientID,
-            clientSecret: nil,
-            scopes: configuration.scopes,
-            redirectURL: configuration.redirectURI,
-            responseType: OIDResponseTypeCode,
-            additionalParameters: nil
-        )
-
         return try await withCheckedThrowingContinuation { continuation in
             Task { @MainActor in
-                guard let window = NSApplication.shared.mainWindow else {
-                    continuation.resume(throwing: OAuthError.noWindowAvailable)
-                    return
-                }
+                // OIDRedirectHTTPHandler starts a local HTTP server on a random high port
+                // and returns http://localhost:PORT/ as the redirect URI.
+                // Google allows any http://localhost redirect for Desktop app OAuth clients
+                // without requiring explicit registration in the Cloud Console.
+                let handler = OIDRedirectHTTPHandler(successURL: nil)
+                let redirectURI = handler.startHTTPListener(nil)
 
+                let request = OIDAuthorizationRequest(
+                    configuration: serviceConfig,
+                    clientId: configuration.clientID,
+                    clientSecret: configuration.clientSecret,
+                    scopes: configuration.scopes,
+                    redirectURL: redirectURI,
+                    responseType: OIDResponseTypeCode,
+                    additionalParameters: nil
+                )
+
+                let userAgent = BrowserUserAgent()
                 self.currentSession = OIDAuthState.authState(
                     byPresenting: request,
-                    presenting: window
+                    externalUserAgent: userAgent
                 ) { authState, error in
                     if let error {
                         continuation.resume(throwing: OAuthError.authorizationFailed(error))
@@ -61,6 +82,10 @@ public final class AppAuthOAuthManager: OAuthManager {
                         refreshToken: refreshToken
                     ))
                 }
+                // Connect the HTTP listener to the active session so it can
+                // resume the flow when the browser hits the redirect URI.
+                handler.currentAuthorizationFlow = self.currentSession
+                self.redirectHandler = handler
             }
         }
     }
@@ -68,6 +93,7 @@ public final class AppAuthOAuthManager: OAuthManager {
     public func signOut(configuration: OAuthConfiguration, keychain: any KeychainService) throws {
         currentSession?.cancel()
         currentSession = nil
+        redirectHandler = nil
         try keychain.delete(forKey: OAuthConfiguration.KeychainKey.accessToken)
         try keychain.delete(forKey: OAuthConfiguration.KeychainKey.refreshToken)
         try keychain.delete(forKey: OAuthConfiguration.KeychainKey.userEmail)

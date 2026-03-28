@@ -26,10 +26,7 @@ final class SignInFeatureTests: XCTestCase {
         coordinator = AuthCoordinator(
             oauthManager: mockOAuth,
             keychain: mockKeychain,
-            configuration: OAuthConfiguration(
-                clientID: "test-client-id",
-                redirectURI: URL(string: "http://127.0.0.1")!
-            )
+            configuration: OAuthConfiguration(clientID: "test-client-id")
         )
     }
 
@@ -78,10 +75,7 @@ final class SignInFeatureTests: XCTestCase {
         coordinator = AuthCoordinator(
             oauthManager: mockOAuth,
             keychain: mockKeychain,
-            configuration: OAuthConfiguration(
-                clientID: "",
-                redirectURI: URL(string: "http://127.0.0.1")!
-            )
+            configuration: OAuthConfiguration(clientID: "")
         )
 
         // When

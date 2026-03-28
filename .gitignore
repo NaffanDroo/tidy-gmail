@@ -29,6 +29,8 @@ client_secret*.json
 *.cer
 GoogleService-Info.plist
 xcconfig/secrets.xcconfig
+xcconfig/client_id
+xcconfig/client_secret
 
 # Build artefacts
 *.dmg

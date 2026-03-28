@@ -139,6 +139,9 @@ fi
 CLIENT_ID=$(echo "$RESPONSE" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(d.get('clientId', d.get('name','')))" \
     2>/dev/null || true)
+CLIENT_SECRET=$(echo "$RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('clientSecret', ''))" \
+    2>/dev/null || true)
 
 if [[ -z "$CLIENT_ID" ]] || echo "$CLIENT_ID" | grep -q "projects/"; then
     # Automated creation hit a policy gate — open Cloud Console as fallback.
@@ -150,10 +153,11 @@ if [[ -z "$CLIENT_ID" ]] || echo "$CLIENT_ID" | grep -q "projects/"; then
     echo "       1. Click '+ CREATE CREDENTIALS' → 'OAuth client ID'"
     echo "       2. Application type: Desktop app"
     echo "       3. Name: TidyGmail Desktop"
-    echo "       4. Click Create, then copy the Client ID"
+    echo "       4. Click Create, then copy both the Client ID and Client Secret"
     echo ""
     open "https://console.cloud.google.com/apis/credentials?project=$PROJECT_ID" 2>/dev/null || true
     read -rp "Paste Client ID here: " CLIENT_ID
+    read -rp "Paste Client Secret here: " CLIENT_SECRET
 fi
 
 if [[ -z "$CLIENT_ID" ]]; then
@@ -161,22 +165,33 @@ if [[ -z "$CLIENT_ID" ]]; then
     exit 1
 fi
 
-# ── Store in Keychain ──────────────────────────────────────────────────────────
+if [[ -z "$CLIENT_SECRET" ]]; then
+    echo "  ✗ No Client Secret obtained. Exiting."
+    exit 1
+fi
 
-echo "→ Saving Client ID to macOS Keychain (service: com.tidygmail.oauth)…"
-security add-generic-password \
-    -s "com.tidygmail.oauth" \
-    -a "client_id" \
-    -w "$CLIENT_ID" \
-    -U
+# ── Store credentials ──────────────────────────────────────────────────────────
+# Written to xcconfig/ (gitignored) so build.sh can embed them in the app binary.
+# Also written to UserDefaults as a fallback for running via `swift run`.
+
+echo "→ Saving credentials to xcconfig/ (gitignored)…"
+mkdir -p xcconfig
+echo "$CLIENT_ID" > xcconfig/client_id
+echo "$CLIENT_SECRET" > xcconfig/client_secret
+
+echo "→ Saving credentials to app preferences (UserDefaults fallback)…"
+defaults write com.tidygmail.app "com.tidygmail.clientID" "$CLIENT_ID"
+defaults write com.tidygmail.app "com.tidygmail.clientSecret" "$CLIENT_SECRET"
 
 echo ""
 echo "✓ Done!"
 echo ""
-echo "  Project:   $PROJECT_ID"
-echo "  Client ID: $CLIENT_ID"
+echo "  Project:       $PROJECT_ID"
+echo "  Client ID:     $CLIENT_ID"
+echo "  Client Secret: (saved to xcconfig/client_secret)"
 echo ""
-echo "  The Client ID is now in your Keychain. Open TidyGmail and sign in."
+echo "  Next: run  bash build.sh  to embed the credentials in the app binary."
+echo "  Then: open TidyGmail.app and sign in."
 echo ""
 echo "  Note: your OAuth app is in TESTING mode. Add test users at:"
 echo "  https://console.cloud.google.com/apis/credentials/consent?project=$PROJECT_ID"
