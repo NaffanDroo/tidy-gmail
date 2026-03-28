@@ -2,6 +2,13 @@
 .DS_Store
 *.swp
 
+# IDE / editor — local config, not shared
+.vscode/
+.idea/
+
+# Claude Code — project permissions are developer-local
+.claude/
+
 # Xcode / Swift
 DerivedData/
 .build/
