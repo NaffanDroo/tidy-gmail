@@ -39,3 +39,4 @@ reporter: "xcode"
 excluded:
   - .build
   - DerivedData
+  - scripts

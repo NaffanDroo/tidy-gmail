@@ -181,6 +181,7 @@ private struct EmailRowView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+        // swiftlint:disable:next line_length
         .accessibilityLabel("\(message.from), \(message.subject), \(message.date.formatted(date: .abbreviated, time: .omitted)), \(message.formattedSize)")
     }
 }
