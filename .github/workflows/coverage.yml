@@ -31,11 +31,22 @@ jobs:
             exit 1
           fi
 
-          # Locate the test binary; SPM may place it inside an xctest bundle or directly
-          # in the build directory depending on Swift/Xcode version.
-          TEST_BIN="$(find .build -type f -name "TidyGmailTests" -not -path "*.dSYM/*" 2>/dev/null | head -1)"
-          if [[ -z "$TEST_BIN" ]]; then
-            echo "::error::Could not find TidyGmailTests binary under .build/"
+          # SPM names the xctest bundle <PackageName>PackageTests, not <TargetName>.
+          # Discover the bundle dynamically so the name never needs to be hard-coded.
+          XCTEST_BUNDLE="$(find .build -maxdepth 6 -name "*.xctest" -type d \
+            -not -path "*.dSYM/*" 2>/dev/null | head -1)"
+          if [[ -n "$XCTEST_BUNDLE" ]]; then
+            BUNDLE_NAME="$(basename "$XCTEST_BUNDLE" .xctest)"
+            TEST_BIN="$XCTEST_BUNDLE/Contents/MacOS/$BUNDLE_NAME"
+          else
+            # Fallback: plain binary (no xctest bundle) — search by suffix
+            TEST_BIN="$(find .build -type f -name "*Tests" \
+              -not -path "*.dSYM/*" 2>/dev/null | head -1)"
+          fi
+          if [[ -z "$TEST_BIN" ]] || [[ ! -f "$TEST_BIN" ]]; then
+            echo "::error::Could not find test binary. Build artifacts under .build/:"
+            find .build -maxdepth 6 -not -path "*.dSYM/*" \
+              \( -name "*.xctest" -o -name "*Tests" \) 2>/dev/null | sort || true
             exit 1
           fi
 
