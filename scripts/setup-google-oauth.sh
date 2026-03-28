@@ -1,6 +1,11 @@
 #!/bin/bash
-# Creates a Google Cloud project, enables the Gmail API, and creates a
-# Desktop OAuth 2.0 client ID — then saves it to your macOS Keychain.
+# Sets up everything Google Cloud needs for Tidy Gmail:
+#   - Creates (or reuses) a Google Cloud project
+#   - Enables the Gmail and IAP APIs
+#   - Configures the OAuth consent screen
+#   - Adds the current account as a test user
+#   - Creates a Desktop OAuth 2.0 client (client_id + client_secret)
+#   - Saves credentials to xcconfig/ (gitignored) and UserDefaults
 #
 # Prerequisites:
 #   brew install google-cloud-sdk
@@ -8,12 +13,13 @@
 #
 # Usage:
 #   bash scripts/setup-google-oauth.sh                        # interactive
-#   bash scripts/setup-google-oauth.sh --project my-proj-id  # specific project ID
+#   bash scripts/setup-google-oauth.sh --project my-proj-id  # specific project
+#   bash scripts/setup-google-oauth.sh --new                  # always create new
 
 set -euo pipefail
 
 PROJECT_ID=""
-CREATE_PROJECT=""   # empty = ask the user
+CREATE_PROJECT=""   # empty = ask interactively
 
 for arg in "$@"; do
     case "$arg" in
@@ -42,10 +48,15 @@ if ! gcloud auth print-access-token &>/dev/null; then
     exit 1
 fi
 
+ACTIVE_ACCOUNT=$(gcloud auth list \
+    --filter=status:ACTIVE \
+    --format='value(account)' \
+    --limit=1 \
+    2>/dev/null || true)
+
 # ── Project ────────────────────────────────────────────────────────────────────
 
 if [[ -z "$CREATE_PROJECT" && -z "$PROJECT_ID" ]]; then
-    # Ask the user what they want to do.
     echo ""
     EXISTING=$(gcloud projects list --format='value(projectId)' 2>/dev/null || true)
 
@@ -82,47 +93,76 @@ fi
 echo "→ Setting active project…"
 gcloud config set project "$PROJECT_ID" --quiet
 
+# ── Enable required APIs ───────────────────────────────────────────────────────
+# iap.googleapis.com  — required for oauth-brands create (consent screen)
+# gmail.googleapis.com — required for the Gmail API calls the app makes
+
+echo "→ Enabling APIs (iap, gmail)…"
+gcloud services enable \
+    iap.googleapis.com \
+    gmail.googleapis.com \
+    --project="$PROJECT_ID"
+
 # ── OAuth consent screen ───────────────────────────────────────────────────────
+# gcloud alpha iap oauth-brands create sets the app title and support email.
+# Idempotent: if a brand already exists for this project it returns an error we
+# suppress, then we list to get the existing brand name.
 
-echo "→ Configuring OAuth consent screen (External, testing)…"
-# Capture the active account without piping through head — head closing the
-# read-end after one line sends SIGPIPE to gcloud, which pipefail then treats
-# as a fatal error.  --limit=1 lets gcloud stop itself cleanly instead.
-ACTIVE_ACCOUNT=$(gcloud auth list \
-    --filter=status:ACTIVE \
-    --format='value(account)' \
-    --limit=1 \
-    2>/dev/null || true)
-
-# iap oauth-brands create is best-effort; it may fail if the consent screen
-# is already configured or if the alpha component is not installed.
-# Do NOT redirect stderr — gcloud alpha may prompt to install the component,
-# and silencing that makes it appear to hang waiting for hidden input.
+echo "→ Configuring OAuth consent screen…"
 gcloud alpha iap oauth-brands create \
     --application_title="Tidy Gmail" \
     --support_email="$ACTIVE_ACCOUNT" \
     --project="$PROJECT_ID" \
-    --quiet || true
+    --quiet 2>/dev/null || true
 
-# ── Enable Gmail API ───────────────────────────────────────────────────────────
+BRAND=$(gcloud alpha iap oauth-brands list \
+    --project="$PROJECT_ID" \
+    --format='value(name)' \
+    --limit=1 \
+    2>/dev/null || true)
 
-echo "→ Enabling Gmail API…"
-gcloud services enable gmail.googleapis.com --project="$PROJECT_ID"
+# ── Test users ─────────────────────────────────────────────────────────────────
+# While the app is in Testing mode only listed accounts can sign in.
+# PATCH the brand resource to add the current gcloud account as a test user.
+
+if [[ -n "$BRAND" ]]; then
+    echo "→ Adding ${ACTIVE_ACCOUNT} as a test user…"
+    ACCESS_TOKEN=$(gcloud auth print-access-token)
+    PATCH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+        "https://iap.googleapis.com/v1/${BRAND}?updateMask=testUsers" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"testUsers\": [\"${ACTIVE_ACCOUNT}\"]}" \
+        2>/dev/null || echo "000")
+
+    if [[ "$PATCH_RESPONSE" != "200" ]]; then
+        echo ""
+        echo "  ⚠  Could not add test user automatically (HTTP $PATCH_RESPONSE)."
+        echo "     Add ${ACTIVE_ACCOUNT} manually at:"
+        echo "     https://console.cloud.google.com/apis/credentials/consent?project=${PROJECT_ID}"
+        echo ""
+        read -rp "  Press Enter once you've added the test user, or Ctrl-C to abort…"
+        open "https://console.cloud.google.com/apis/credentials/consent?project=${PROJECT_ID}" 2>/dev/null || true
+    fi
+else
+    echo ""
+    echo "  ⚠  Could not determine brand — add ${ACTIVE_ACCOUNT} as a test user manually at:"
+    echo "     https://console.cloud.google.com/apis/credentials/consent?project=${PROJECT_ID}"
+    echo ""
+    open "https://console.cloud.google.com/apis/credentials/consent?project=${PROJECT_ID}" 2>/dev/null || true
+    read -rp "  Press Enter once done…"
+fi
 
 # ── Create OAuth client ────────────────────────────────────────────────────────
 
 echo "→ Creating Desktop OAuth 2.0 client…"
-
 ACCESS_TOKEN=$(gcloud auth print-access-token)
 
 RESPONSE=$(curl -s -X POST \
     "https://oauth2.googleapis.com/v1/projects/${PROJECT_ID}/oauthClients" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{
-        "displayName": "TidyGmail Desktop",
-        "clientType": "DESKTOP_APP"
-    }')
+    -d '{"displayName": "TidyGmail Desktop", "clientType": "DESKTOP_APP"}')
 
 # Fall back to the older endpoint if the v1 one isn't available yet.
 if echo "$RESPONSE" | grep -q '"error"'; then
@@ -130,10 +170,7 @@ if echo "$RESPONSE" | grep -q '"error"'; then
         "https://console.googleapis.com/v1/projects/${PROJECT_ID}/oauthClients" \
         -H "Authorization: Bearer $ACCESS_TOKEN" \
         -H "Content-Type: application/json" \
-        -d '{
-            "displayName": "TidyGmail Desktop",
-            "clientType": "DESKTOP_APP"
-        }')
+        -d '{"displayName": "TidyGmail Desktop", "clientType": "DESKTOP_APP"}')
 fi
 
 CLIENT_ID=$(echo "$RESPONSE" | python3 -c \
@@ -144,20 +181,18 @@ CLIENT_SECRET=$(echo "$RESPONSE" | python3 -c \
     2>/dev/null || true)
 
 if [[ -z "$CLIENT_ID" ]] || echo "$CLIENT_ID" | grep -q "projects/"; then
-    # Automated creation hit a policy gate — open Cloud Console as fallback.
     echo ""
-    echo "  ⚠  Automated client creation requires the Cloud Console for this project."
-    echo "     Opening the Credentials page now…"
+    echo "  ⚠  Automated client creation hit a policy gate — opening Cloud Console…"
     echo ""
     echo "     Steps:"
     echo "       1. Click '+ CREATE CREDENTIALS' → 'OAuth client ID'"
     echo "       2. Application type: Desktop app"
     echo "       3. Name: TidyGmail Desktop"
-    echo "       4. Click Create, then copy both the Client ID and Client Secret"
+    echo "       4. Click Create, then copy the Client ID and Client Secret"
     echo ""
     open "https://console.cloud.google.com/apis/credentials?project=$PROJECT_ID" 2>/dev/null || true
-    read -rp "Paste Client ID here: " CLIENT_ID
-    read -rp "Paste Client Secret here: " CLIENT_SECRET
+    read -rp "  Paste Client ID: " CLIENT_ID
+    read -rp "  Paste Client Secret: " CLIENT_SECRET
 fi
 
 if [[ -z "$CLIENT_ID" ]]; then
@@ -170,29 +205,54 @@ if [[ -z "$CLIENT_SECRET" ]]; then
     exit 1
 fi
 
-# ── Store credentials ──────────────────────────────────────────────────────────
-# Written to xcconfig/ (gitignored) so build.sh can embed them in the app binary.
-# Also written to UserDefaults as a fallback for running via `swift run`.
+# ── Save credentials ───────────────────────────────────────────────────────────
+# xcconfig/ files are gitignored; build.sh reads them and embeds the values in
+# the app bundle's Info.plist at build time.
+# UserDefaults is a fallback for swift run (no built bundle).
 
 echo "→ Saving credentials to xcconfig/ (gitignored)…"
 mkdir -p xcconfig
-echo "$CLIENT_ID" > xcconfig/client_id
+echo "$CLIENT_ID"     > xcconfig/client_id
 echo "$CLIENT_SECRET" > xcconfig/client_secret
 
 echo "→ Saving credentials to app preferences (UserDefaults fallback)…"
-defaults write com.tidygmail.app "com.tidygmail.clientID" "$CLIENT_ID"
+defaults write com.tidygmail.app "com.tidygmail.clientID"     "$CLIENT_ID"
 defaults write com.tidygmail.app "com.tidygmail.clientSecret" "$CLIENT_SECRET"
+
+# ── Verify ─────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "→ Verifying setup…"
+
+GMAIL_ENABLED=$(gcloud services list --enabled \
+    --project="$PROJECT_ID" \
+    --filter="name:gmail.googleapis.com" \
+    --format='value(name)' 2>/dev/null || true)
+
+IAP_ENABLED=$(gcloud services list --enabled \
+    --project="$PROJECT_ID" \
+    --filter="name:iap.googleapis.com" \
+    --format='value(name)' 2>/dev/null || true)
+
+[[ -n "$GMAIL_ENABLED" ]] && echo "  ✓ Gmail API enabled" \
+                          || echo "  ✗ Gmail API NOT enabled — run: gcloud services enable gmail.googleapis.com"
+[[ -n "$IAP_ENABLED"   ]] && echo "  ✓ IAP API enabled" \
+                          || echo "  ✗ IAP API NOT enabled — run: gcloud services enable iap.googleapis.com"
+[[ -f "xcconfig/client_id"     ]] && echo "  ✓ xcconfig/client_id saved" \
+                                  || echo "  ✗ xcconfig/client_id missing"
+[[ -f "xcconfig/client_secret" ]] && echo "  ✓ xcconfig/client_secret saved" \
+                                  || echo "  ✗ xcconfig/client_secret missing"
+
+# ── Summary ────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "✓ Done!"
 echo ""
 echo "  Project:       $PROJECT_ID"
 echo "  Client ID:     $CLIENT_ID"
-echo "  Client Secret: (saved to xcconfig/client_secret)"
+echo "  Client Secret: (saved — do not commit)"
 echo ""
-echo "  Next: run  bash build.sh  to embed the credentials in the app binary."
-echo "  Then: open TidyGmail.app and sign in."
-echo ""
-echo "  Note: your OAuth app is in TESTING mode. Add test users at:"
-echo "  https://console.cloud.google.com/apis/credentials/consent?project=$PROJECT_ID"
+echo "  Next steps:"
+echo "    bash build.sh       — embeds credentials and builds TidyGmail.app"
+echo "    open TidyGmail.app  — sign in with ${ACTIVE_ACCOUNT}"
 echo ""
