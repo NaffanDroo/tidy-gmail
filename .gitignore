@@ -33,6 +33,7 @@ xcconfig/secrets.xcconfig
 *.dmg
 *.zip
 *.app/
+TidyGmail.app
 
 # Logs
 *.log
