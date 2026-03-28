@@ -44,12 +44,19 @@ fi
 # ── Project ────────────────────────────────────────────────────────────────────
 
 if [[ -z "$PROJECT_ID" ]]; then
-    PROJECT_ID="tidy-gmail-$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 6)"
+    # Generate a random suffix without | head (avoids SIGPIPE under pipefail).
+    SUFFIX=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | dd bs=1 count=6 2>/dev/null || true)
+    PROJECT_ID="tidy-gmail-${SUFFIX}"
 fi
 
 if [[ "$CREATE_PROJECT" == true ]]; then
     echo "→ Creating Google Cloud project: $PROJECT_ID"
-    gcloud projects create "$PROJECT_ID" --name="Tidy Gmail" 2>&1 | grep -v "already exists" || true
+    # Suppress "already exists" without piping gcloud output through grep
+    # (grep closing the pipe causes SIGPIPE → exit 141 under pipefail).
+    CREATE_OUT=$(gcloud projects create "$PROJECT_ID" --name="Tidy Gmail" 2>&1 || true)
+    if [[ -n "$CREATE_OUT" ]] && ! echo "$CREATE_OUT" | grep -qi "already exists"; then
+        echo "$CREATE_OUT"
+    fi
 else
     echo "→ Using existing project: $PROJECT_ID"
 fi
@@ -60,12 +67,20 @@ gcloud config set project "$PROJECT_ID" --quiet
 # ── OAuth consent screen ───────────────────────────────────────────────────────
 
 echo "→ Configuring OAuth consent screen (External, testing)…"
-# Set to 'external' so you can sign in with your own Google account during dev.
-# Publishing status stays 'TESTING' — only explicit test users can sign in.
-# Change to 'internal' if you have a Google Workspace org.
+# Capture the active account without piping through head — head closing the
+# read-end after one line sends SIGPIPE to gcloud, which pipefail then treats
+# as a fatal error.  --limit=1 lets gcloud stop itself cleanly instead.
+ACTIVE_ACCOUNT=$(gcloud auth list \
+    --filter=status:ACTIVE \
+    --format='value(account)' \
+    --limit=1 \
+    2>/dev/null || true)
+
+# iap oauth-brands create is best-effort; it may fail if the consent screen
+# is already configured or if the alpha component is not installed.
 gcloud alpha iap oauth-brands create \
     --application_title="Tidy Gmail" \
-    --support_email="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' | head -1)" \
+    --support_email="$ACTIVE_ACCOUNT" \
     --project="$PROJECT_ID" 2>/dev/null || true
 
 # ── Enable Gmail API ───────────────────────────────────────────────────────────
@@ -77,8 +92,6 @@ gcloud services enable gmail.googleapis.com --project="$PROJECT_ID"
 
 echo "→ Creating Desktop OAuth 2.0 client…"
 
-# The gcloud CLI does not expose oauth-clients create for desktop apps directly,
-# so we use the REST API via gcloud's auth token.
 ACCESS_TOKEN=$(gcloud auth print-access-token)
 
 RESPONSE=$(curl -s -X POST \
@@ -90,7 +103,7 @@ RESPONSE=$(curl -s -X POST \
         "clientType": "DESKTOP_APP"
     }')
 
-# Fall back to the older API endpoint if the v1 one isn't available yet.
+# Fall back to the older endpoint if the v1 one isn't available yet.
 if echo "$RESPONSE" | grep -q '"error"'; then
     RESPONSE=$(curl -s -X POST \
         "https://console.googleapis.com/v1/projects/${PROJECT_ID}/oauthClients" \
@@ -102,7 +115,9 @@ if echo "$RESPONSE" | grep -q '"error"'; then
         }')
 fi
 
-CLIENT_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('clientId', d.get('name','')))" 2>/dev/null || true)
+CLIENT_ID=$(echo "$RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('clientId', d.get('name','')))" \
+    2>/dev/null || true)
 
 if [[ -z "$CLIENT_ID" ]] || echo "$CLIENT_ID" | grep -q "projects/"; then
     # Automated creation hit a policy gate — open Cloud Console as fallback.
@@ -115,8 +130,6 @@ if [[ -z "$CLIENT_ID" ]] || echo "$CLIENT_ID" | grep -q "projects/"; then
     echo "       2. Application type: Desktop app"
     echo "       3. Name: TidyGmail Desktop"
     echo "       4. Click Create, then copy the Client ID"
-    echo "       5. Re-run this script with: --project=$PROJECT_ID"
-    echo "         and paste when prompted."
     echo ""
     open "https://console.cloud.google.com/apis/credentials?project=$PROJECT_ID" 2>/dev/null || true
     read -rp "Paste Client ID here: " CLIENT_ID
@@ -134,7 +147,7 @@ security add-generic-password \
     -s "com.tidygmail.oauth" \
     -a "client_id" \
     -w "$CLIENT_ID" \
-    -U   # -U = update if exists
+    -U
 
 echo ""
 echo "✓ Done!"
