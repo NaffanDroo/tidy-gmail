@@ -1,0 +1,18 @@
+{
+  "_comment": "Apply with: gh api repos/{owner}/{repo}/rulesets --method POST --input .github/rulesets/signed-commits.json",
+  "_note": "This ruleset is intentionally created as DISABLED. Enable it once the team has GPG signing configured.",
+  "name": "Signed commits",
+  "target": "branch",
+  "enforcement": "disabled",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_signatures"
+    }
+  ]
+}
