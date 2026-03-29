@@ -22,6 +22,16 @@ public protocol GmailAPIClient: Sendable {
     /// This is the only deletion operation Tidy Gmail performs — permanent deletion is intentionally
     /// not supported; users must empty Trash in Gmail directly.
     func trashMessages(ids: [String]) async throws
+
+    /// Fetch message IDs and size estimates for a given label.
+    /// Uses fields=messages/id,messages/sizeEstimate to avoid full per-message fetches.
+    /// sizeEstimate may be 0 if the API does not return it for a given message — callers must
+    /// treat it as a best-effort estimate and never crash when it is absent.
+    /// Paginate using `pageToken`; pass nil to start from the first page.
+    func fetchMessageSizes(
+        labelId: String,
+        pageToken: String?
+    ) async throws -> (refs: [(id: String, size: Int)], nextPageToken: String?)
 }
 
 // MARK: - Errors
@@ -148,7 +158,34 @@ public final class LiveGmailAPIClient: GmailAPIClient {
     public func fetchLabels() async throws -> [GmailLabel] {
         let url = baseURL.appendingPathComponent("labels")
         let response: GmailLabelsListResponse = try await fetch(url: url)
-        return (response.labels ?? []).map { GmailLabel(id: $0.id, name: $0.name) }
+        return (response.labels ?? []).map {
+            GmailLabel(id: $0.id, name: $0.name, messagesTotal: $0.messagesTotal)
+        }
+    }
+
+    public func fetchMessageSizes(
+        labelId: String,
+        pageToken: String?
+    ) async throws -> (refs: [(id: String, size: Int)], nextPageToken: String?) {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("messages"),
+            resolvingAgainstBaseURL: true
+        )!
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "labelIds", value: labelId),
+            URLQueryItem(name: "maxResults", value: "500"),
+            // Request sizeEstimate on the list response to avoid individual messages.get calls.
+            // If the API does not populate it, refs will carry size=0 which callers handle gracefully.
+            URLQueryItem(name: "fields", value: "messages/id,messages/sizeEstimate,nextPageToken")
+        ]
+        if let pageToken {
+            queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+        }
+        components.queryItems = queryItems
+
+        let response: GmailMessageSizeListResponse = try await fetch(url: components.url!)
+        let refs = (response.messages ?? []).map { (id: $0.id, size: $0.sizeEstimate ?? 0) }
+        return (refs: refs, nextPageToken: response.nextPageToken)
     }
 
     // MARK: - Base64URL decoding

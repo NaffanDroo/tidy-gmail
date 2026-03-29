@@ -48,6 +48,22 @@ struct GmailLabelsListResponse: Decodable, Sendable {
 struct GmailLabelResponse: Decodable, Sendable {
     let id: String
     let name: String
+    let messagesTotal: Int?
+}
+
+// MARK: - Message size list (for label analysis)
+
+/// Lightweight list response used by the label analyser.
+/// Uses fields=messages/id,messages/sizeEstimate,nextPageToken to avoid per-message fetches.
+/// sizeEstimate may be absent for some messages and is treated as 0.
+struct GmailMessageSizeListResponse: Decodable, Sendable {
+    let messages: [GmailMessageSizeRef]?
+    let nextPageToken: String?
+}
+
+struct GmailMessageSizeRef: Decodable, Sendable {
+    let id: String
+    let sizeEstimate: Int?
 }
 
 // MARK: - Mapping

@@ -54,6 +54,14 @@ public final class EmailListViewModel {
         self.client = client
     }
 
+    // MARK: - Label analysis navigation
+
+    /// Pre-filter the email list to the given label and trigger a search.
+    /// Typically called when the user taps a row in `LabelAnalysisView`.
+    public func filterByLabel(_ stat: LabelStat) {
+        searchText = stat.searchQuery
+    }
+
     // MARK: - Browse intent handlers
 
     public func search() async {

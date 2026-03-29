@@ -19,10 +19,15 @@ public struct RawGmailMessage: Sendable, Equatable {
 public struct GmailLabel: Sendable, Equatable, Identifiable {
     public let id: String
     public let name: String
+    /// Total messages in this label as reported by the Gmail API labels.list endpoint.
+    /// Used by the label analyser to show overall progress; may be nil for labels
+    /// that don't report this field.
+    public let messagesTotal: Int?
 
-    public init(id: String, name: String) {
+    public init(id: String, name: String, messagesTotal: Int? = nil) {
         self.id = id
         self.name = name
+        self.messagesTotal = messagesTotal
     }
 }
 

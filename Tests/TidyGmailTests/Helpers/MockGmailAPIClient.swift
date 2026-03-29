@@ -8,6 +8,12 @@ final class MockGmailAPIClient: GmailAPIClient, @unchecked Sendable {
     var fetchRawMessageResult: Result<RawGmailMessage, Error> = .failure(GmailAPIError.invalidResponse)
     var fetchLabelsResult: Result<[GmailLabel], Error> = .success([])
 
+    /// Per-label message size fixtures. Keys are labelId strings.
+    /// If a labelId is not present, an empty list is returned.
+    var messageSizesByLabelId: [String: [(id: String, size: Int)]] = [:]
+    /// Set to force fetchMessageSizes to throw this error for every call.
+    var fetchMessageSizesError: Error?
+
     var searchCallCount = 0
     var lastSearchQuery: GmailSearchQuery?
     var lastPageToken: String?
@@ -15,6 +21,8 @@ final class MockGmailAPIClient: GmailAPIClient, @unchecked Sendable {
     var fetchRawMessageCallCount = 0
     var fetchedRawMessageIDs: [String] = []
     var fetchLabelsCallCount = 0
+    var fetchMessageSizesCallCount = 0
+    var fetchMessageSizesLabelIds: [String] = []
 
     func searchMessages(
         query: GmailSearchQuery,
@@ -45,6 +53,17 @@ final class MockGmailAPIClient: GmailAPIClient, @unchecked Sendable {
     func trashMessages(ids: [String]) async throws {
         try trashResult.get()
         trashedIDs.append(contentsOf: ids)
+    }
+
+    func fetchMessageSizes(
+        labelId: String,
+        pageToken: String?
+    ) async throws -> (refs: [(id: String, size: Int)], nextPageToken: String?) {
+        fetchMessageSizesCallCount += 1
+        fetchMessageSizesLabelIds.append(labelId)
+        if let error = fetchMessageSizesError { throw error }
+        let refs = messageSizesByLabelId[labelId] ?? []
+        return (refs: refs, nextPageToken: nil)
     }
 }
 

@@ -6,6 +6,7 @@ public struct EmailListView: View {
     @State private var selectedMessage: GmailMessage?
     @State private var deletionTask: Task<Void, Never>?
     @State private var exportTask: Task<Void, Never>?
+    @State private var showLabelAnalysis: Bool = false
     @Environment(AuthState.self) private var authState
     @Environment(AppAuthOAuthManager.self) private var oauthManager
 
@@ -56,6 +57,12 @@ public struct EmailListView: View {
         }
         .sheet(item: Bindable(viewModel).exportSummary) { summary in
             ExportSummarySheet(summary: summary)
+        }
+        .sheet(isPresented: $showLabelAnalysis) {
+            LabelAnalysisView(client: LiveGmailAPIClient(tokenProvider: oauthManager)) { stat in
+                viewModel.filterByLabel(stat)
+                Task { await viewModel.search() }
+            }
         }
         .overlay { deletionProgressOverlay(viewModel: viewModel) }
         .overlay { exportProgressOverlay(viewModel: viewModel, exportTask: $exportTask) }
@@ -290,6 +297,15 @@ public struct EmailListView: View {
                 .disabled(viewModel.selectedMessageIDs.isEmpty)
                 .help("Export selected emails to an encrypted DMG archive")
             }
+        }
+
+        ToolbarItem(placement: .automatic) {
+            Button {
+                showLabelAnalysis = true
+            } label: {
+                Label("Analyse Labels", systemImage: "chart.bar.xaxis")
+            }
+            .help("See which labels consume the most storage")
         }
 
         ToolbarItem(placement: .automatic) {
