@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/NaffanDroo/tidy-gmail/compare/v0.2.1...v0.2.2) (2026-03-29)
+
+
+### Bug Fixes
+
+* **ci:** create releases as drafts so workflow can publish after DMG upload ([#29](https://github.com/NaffanDroo/tidy-gmail/issues/29)) ([41874fd](https://github.com/NaffanDroo/tidy-gmail/commit/41874fda2605a2056ab55d0fdfbcad9f80d35941))
+
 ## [0.2.1](https://github.com/NaffanDroo/tidy-gmail/compare/v0.2.0...v0.2.1) (2026-03-29)
 
 
