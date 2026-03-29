@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/NaffanDroo/tidy-gmail/compare/v0.2.2...v0.3.0) (2026-03-29)
+
+
+### Features
+
+* export selected emails to AES-256 encrypted DMG (closes [#6](https://github.com/NaffanDroo/tidy-gmail/issues/6)) ([#31](https://github.com/NaffanDroo/tidy-gmail/issues/31)) ([c37cff1](https://github.com/NaffanDroo/tidy-gmail/commit/c37cff1d0162bdf60470760602a91b951fdd77c0))
+
 ## [0.2.2](https://github.com/NaffanDroo/tidy-gmail/compare/v0.2.1...v0.2.2) (2026-03-29)
 
 
