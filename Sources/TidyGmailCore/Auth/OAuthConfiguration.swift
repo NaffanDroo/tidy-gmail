@@ -5,7 +5,7 @@ public struct OAuthConfiguration: Sendable {
     public static let authorizationEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     public static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
 
-    // Scopes. Start with read-only; upgrade to modify when delete story is built.
+    // Scopes.
     public static let readOnlyScopes = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/userinfo.email",
@@ -24,7 +24,7 @@ public struct OAuthConfiguration: Sendable {
     public let clientSecret: String?
     public let scopes: [String]
 
-    public init(clientID: String, clientSecret: String? = nil, scopes: [String] = OAuthConfiguration.readOnlyScopes) {
+    public init(clientID: String, clientSecret: String? = nil, scopes: [String] = OAuthConfiguration.modifyScopes) {
         self.clientID = clientID
         self.clientSecret = clientSecret
         self.scopes = scopes
