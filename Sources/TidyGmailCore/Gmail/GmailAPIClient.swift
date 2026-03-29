@@ -13,10 +13,9 @@ public protocol GmailAPIClient: Sendable {
     func fetchMessage(id: String) async throws -> GmailMessage
 
     /// Move messages to Trash. IDs are sent in a single batchModify call (max 1 000 per call).
+    /// This is the only deletion operation Tidy Gmail performs — permanent deletion is intentionally
+    /// not supported; users must empty Trash in Gmail directly.
     func trashMessages(ids: [String]) async throws
-
-    /// Permanently delete messages. This cannot be undone. IDs are sent via batchDelete (max 1 000 per call).
-    func deleteMessages(ids: [String]) async throws
 }
 
 // MARK: - Errors
@@ -101,13 +100,6 @@ public final class LiveGmailAPIClient: GmailAPIClient {
         try await post(url: url, body: body)
     }
 
-    public func deleteMessages(ids: [String]) async throws {
-        guard !ids.isEmpty else { return }
-        let url = baseURL.appendingPathComponent("messages/batchDelete")
-        let body = try JSONEncoder().encode(BatchDeleteRequest(ids: ids))
-        try await post(url: url, body: body)
-    }
-
     public func fetchMessage(id: String) async throws -> GmailMessage {
         var components = URLComponents(
             url: baseURL.appendingPathComponent("messages/\(id)"),
@@ -185,8 +177,4 @@ private struct BatchModifyRequest: Encodable {
     let ids: [String]
     let addLabelIds: [String]
     let removeLabelIds: [String]
-}
-
-private struct BatchDeleteRequest: Encodable {
-    let ids: [String]
 }

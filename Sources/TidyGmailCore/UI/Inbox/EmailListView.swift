@@ -31,9 +31,6 @@ public struct EmailListView: View {
                 .sheet(isPresented: Bindable(viewModel).showTrashConfirmation) {
                     TrashConfirmationSheet(viewModel: viewModel, deletionTask: $deletionTask)
                 }
-                .sheet(isPresented: Bindable(viewModel).showPermanentDeleteConfirmation) {
-                    PermanentDeleteConfirmationSheet(viewModel: viewModel, deletionTask: $deletionTask)
-                }
                 .overlay { deletionProgressOverlay(viewModel: viewModel) }
                 .alert(
                     "Deletion Failed",
@@ -186,7 +183,7 @@ public struct EmailListView: View {
                     ProgressView(value: viewModel.deleteProgress)
                         .progressViewStyle(.linear)
                         .frame(width: 240)
-                    Text(viewModel.deleteProgress < 1.0 ? "Deleting…" : "Done")
+                    Text(viewModel.deleteProgress < 1.0 ? "Moving to Trash…" : "Done")
                         .foregroundStyle(.secondary)
                         .font(.callout)
                     Button("Cancel") {
@@ -194,14 +191,14 @@ public struct EmailListView: View {
                         deletionTask = nil
                     }
                     .buttonStyle(.bordered)
-                    .help("Cancel — already deleted emails will remain in Trash")
+                    .help("Cancel — emails already moved to Trash will remain there")
                 }
                 .padding(28)
                 .background(.regularMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .shadow(radius: 12)
             }
-            .accessibilityLabel("Deleting emails, \(Int(viewModel.deleteProgress * 100)) percent complete")
+            .accessibilityLabel("Moving emails to Trash, \(Int(viewModel.deleteProgress * 100)) percent complete")
         }
     }
 
@@ -235,17 +232,7 @@ public struct EmailListView: View {
                     Label("Move to Trash", systemImage: "trash")
                 }
                 .disabled(viewModel.selectedMessageIDs.isEmpty)
-                .help("Move selected emails to Trash")
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button(role: .destructive) {
-                    viewModel.showPermanentDeleteConfirmation = true
-                } label: {
-                    Label("Delete Permanently", systemImage: "trash.slash")
-                }
-                .disabled(viewModel.selectedMessageIDs.isEmpty)
-                .help("Permanently delete selected emails — this cannot be undone")
+                .help("Move selected emails to Trash. To permanently delete, empty Trash in Gmail.")
             }
         }
 
@@ -344,7 +331,19 @@ private struct TrashConfirmationSheet: View {
 
             sampleSubjects
 
-            Text("Emails in Trash are permanently deleted after 30 days. You can restore them before then.")
+            // Permanent-deletion policy — shown prominently so users know what to expect.
+            GroupBox {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.blue)
+                        .accessibilityHidden(true)
+                    Text(EmailListViewModel.permanentDeletionNote)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Text("Emails in Trash are automatically purged by Gmail after 30 days. You can restore them before then.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -395,59 +394,6 @@ private struct TrashConfirmationSheet: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Permanent delete confirmation sheet
-
-private struct PermanentDeleteConfirmationSheet: View {
-    let viewModel: EmailListViewModel
-    @Binding var deletionTask: Task<Void, Never>?
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.title2)
-                    .accessibilityHidden(true)
-                Text("Delete Permanently")
-                    .font(.title2)
-                    .bold()
-            }
-
-            Text(countDescription)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("This cannot be undone. Permanently deleted emails cannot be restored from Trash or anywhere else.")
-                .font(.callout)
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.escape)
-                Button("Delete Permanently") {
-                    dismiss()
-                    deletionTask = Task { await viewModel.permanentlyDeleteSelected() }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .keyboardShortcut(.return)
-                .accessibilityLabel("Confirm permanent deletion")
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 420, maxWidth: 560)
-    }
-
-    private var countDescription: String {
-        let count = viewModel.selectedMessageIDs.count
-        return "\(count) email\(count == 1 ? "" : "s") will be permanently deleted."
     }
 }
 
