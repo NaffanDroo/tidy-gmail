@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/NaffanDroo/tidy-gmail/compare/v0.2.0...v0.2.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* **ci:** use build.sh instead of xcodebuild archive for DMG ([#27](https://github.com/NaffanDroo/tidy-gmail/issues/27)) ([79c3d1c](https://github.com/NaffanDroo/tidy-gmail/commit/79c3d1c0d39bc948659a3671b124e34542cd542a))
+
 ## [0.2.0](https://github.com/NaffanDroo/tidy-gmail/compare/v0.1.0...v0.2.0) (2026-03-29)
 
 
