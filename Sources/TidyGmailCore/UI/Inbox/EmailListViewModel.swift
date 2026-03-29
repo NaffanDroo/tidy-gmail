@@ -33,13 +33,22 @@ public final class EmailListViewModel {
     /// Shown in the confirmation sheet and anywhere else the app communicates that permanent
     /// deletion must be done in Gmail directly.
     public static let permanentDeletionNote =
-        "Tidy Gmail only moves emails to Trash — it never permanently deletes them. " +
-        "To permanently delete, open Gmail in your browser and empty the Trash."
+        "Tidy Gmail only moves emails to Trash — it never permanently deletes them. "
+        + "To permanently delete, open Gmail in your browser and empty the Trash."
+
+    // MARK: Export state
+
+    public var showExportPrompt: Bool = false
+    public var isExporting: Bool = false
+    public var exportProgress: ExportProgress?
+    public var exportError: Error?
+    public var exportSummary: ExportSummary?
 
     // MARK: Private
 
     private let client: any GmailAPIClient
     private var nextPageToken: String?
+    private var exportCoordinator: ExportCoordinator?
 
     public init(client: any GmailAPIClient) {
         self.client = client
@@ -112,6 +121,41 @@ public final class EmailListViewModel {
             deleteError = apiError
         } catch {
             deleteError = .invalidResponse
+        }
+    }
+
+    // MARK: - Export intent handler
+
+    /// Execute the export. Call from a Task so it can be cancelled by cancelling that Task.
+    public func exportSelected(to destination: URL, passphrase: String) async {
+        let ids = Array(selectedMessageIDs)
+        guard !ids.isEmpty else { return }
+
+        isExporting = true
+        exportError = nil
+        exportProgress = nil
+        exportSummary = nil
+        defer { isExporting = false }
+
+        let coordinator = ExportCoordinator(client: client)
+        do {
+            let summary = try await coordinator.export(
+                messageIDs: ids,
+                destination: destination,
+                passphrase: passphrase,
+                onProgress: { [weak self] progress in
+                    Task { @MainActor in
+                        self?.exportProgress = progress
+                    }
+                }
+            )
+            exportSummary = summary
+            selectedMessageIDs = []
+        } catch is CancellationError {
+            // Export was cancelled; DMG already cleaned up by coordinator
+            exportError = nil
+        } catch {
+            exportError = error
         }
     }
 

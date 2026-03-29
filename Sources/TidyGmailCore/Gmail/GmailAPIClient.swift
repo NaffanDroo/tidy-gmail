@@ -12,6 +12,12 @@ public protocol GmailAPIClient: Sendable {
     /// Fetch full header details for a single message.
     func fetchMessage(id: String) async throws -> GmailMessage
 
+    /// Fetch the complete raw RFC 2822 message (for export). Returns decoded bytes and label IDs.
+    func fetchRawMessage(id: String) async throws -> RawGmailMessage
+
+    /// Fetch all labels for the authenticated user.
+    func fetchLabels() async throws -> [GmailLabel]
+
     /// Move messages to Trash. IDs are sent in a single batchModify call (max 1 000 per call).
     /// This is the only deletion operation Tidy Gmail performs — permanent deletion is intentionally
     /// not supported; users must empty Trash in Gmail directly.
@@ -114,6 +120,49 @@ public final class LiveGmailAPIClient: GmailAPIClient {
 
         let response: GmailMessageResponse = try await fetch(url: components.url!)
         return response.toDomain()
+    }
+
+    public func fetchRawMessage(id: String) async throws -> RawGmailMessage {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("messages/\(id)"),
+            resolvingAgainstBaseURL: true
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "format", value: "raw")
+        ]
+
+        let response: GmailRawMessageResponse = try await fetch(url: components.url!)
+
+        // Gmail returns base64url-encoded raw message
+        guard let rawData = Self.decodeBase64URL(response.raw) else {
+            throw GmailAPIError.decodingFailed
+        }
+
+        return RawGmailMessage(
+            id: response.id,
+            rawData: rawData,
+            labelIds: response.labelIds ?? []
+        )
+    }
+
+    public func fetchLabels() async throws -> [GmailLabel] {
+        let url = baseURL.appendingPathComponent("labels")
+        let response: GmailLabelsListResponse = try await fetch(url: url)
+        return (response.labels ?? []).map { GmailLabel(id: $0.id, name: $0.name) }
+    }
+
+    // MARK: - Base64URL decoding
+
+    private static func decodeBase64URL(_ string: String) -> Data? {
+        var base64 = string
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        // Pad to multiple of 4
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64 += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: base64)
     }
 
     // MARK: - Private

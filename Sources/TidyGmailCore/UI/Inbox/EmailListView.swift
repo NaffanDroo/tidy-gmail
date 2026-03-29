@@ -5,6 +5,7 @@ public struct EmailListView: View {
     @State private var viewModel: EmailListViewModel?
     @State private var selectedMessage: GmailMessage?
     @State private var deletionTask: Task<Void, Never>?
+    @State private var exportTask: Task<Void, Never>?
     @Environment(AuthState.self) private var authState
     @Environment(AppAuthOAuthManager.self) private var oauthManager
 
@@ -13,34 +14,7 @@ public struct EmailListView: View {
     public var body: some View {
         Group {
             if let viewModel {
-                NavigationSplitView {
-                    sidebarContent(viewModel: viewModel)
-                } detail: {
-                    if let selectedMessage {
-                        EmailDetailView(message: selectedMessage)
-                    } else {
-                        ContentUnavailableView(
-                            "No message selected",
-                            systemImage: "envelope",
-                            description: Text("Select an email from the list to preview it.")
-                        )
-                    }
-                }
-                .navigationTitle("Tidy Gmail")
-                .toolbar { toolbarContent(viewModel: viewModel) }
-                .sheet(isPresented: Bindable(viewModel).showTrashConfirmation) {
-                    TrashConfirmationSheet(viewModel: viewModel, deletionTask: $deletionTask)
-                }
-                .overlay { deletionProgressOverlay(viewModel: viewModel) }
-                .alert(
-                    "Deletion Failed",
-                    isPresented: Binding(
-                        get: { viewModel.deleteError != nil },
-                        set: { if !$0 { viewModel.deleteError = nil } }
-                    ),
-                    actions: { Button("OK") { viewModel.deleteError = nil } },
-                    message: { Text(viewModel.deleteError?.userMessage ?? "") }
-                )
+                innerContent(viewModel: viewModel)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,9 +22,65 @@ public struct EmailListView: View {
         }
         .task {
             if viewModel == nil {
-                viewModel = EmailListViewModel(client: LiveGmailAPIClient(tokenProvider: oauthManager))
+                viewModel = EmailListViewModel(
+                    client: LiveGmailAPIClient(tokenProvider: oauthManager))
             }
         }
+    }
+
+    @ViewBuilder
+    private func innerContent(viewModel: EmailListViewModel) -> some View {
+        NavigationSplitView {
+            sidebarContent(viewModel: viewModel)
+        } detail: {
+            if let selectedMessage {
+                EmailDetailView(message: selectedMessage)
+            } else {
+                ContentUnavailableView(
+                    "No message selected",
+                    systemImage: "envelope",
+                    description: Text("Select an email from the list to preview it.")
+                )
+            }
+        }
+        .navigationTitle("Tidy Gmail")
+        .toolbar { toolbarContent(viewModel: viewModel) }
+        .sheet(isPresented: Bindable(viewModel).showTrashConfirmation) {
+            TrashConfirmationSheet(viewModel: viewModel, deletionTask: $deletionTask)
+        }
+        .sheet(isPresented: Bindable(viewModel).showExportPrompt) {
+            let count = viewModel.selectedMessageIDs.count
+            if count > 0 {
+                ExportPassphraseSheet(viewModel: viewModel, messageCount: count)
+            }
+        }
+        .sheet(item: Bindable(viewModel).exportSummary) { summary in
+            ExportSummarySheet(summary: summary)
+        }
+        .overlay { deletionProgressOverlay(viewModel: viewModel) }
+        .overlay { exportProgressOverlay(viewModel: viewModel, exportTask: $exportTask) }
+        .alert(
+            "Deletion Failed",
+            isPresented: Binding(
+                get: { viewModel.deleteError != nil },
+                set: { if !$0 { viewModel.deleteError = nil } }
+            ),
+            actions: { Button("OK") { viewModel.deleteError = nil } },
+            message: { Text(viewModel.deleteError?.userMessage ?? "") }
+        )
+        .alert(
+            "Export Failed",
+            isPresented: Binding(
+                get: { viewModel.exportError != nil },
+                set: { if !$0 { viewModel.exportError = nil } }
+            ),
+            actions: { Button("OK") { viewModel.exportError = nil } },
+            message: {
+                if let error = viewModel.exportError {
+                    Text(error.localizedDescription)
+                }
+            }
+        )
     }
 
     // MARK: - Sidebar
@@ -198,7 +228,23 @@ public struct EmailListView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .shadow(radius: 12)
             }
-            .accessibilityLabel("Moving emails to Trash, \(Int(viewModel.deleteProgress * 100)) percent complete")
+            .accessibilityLabel(
+                "Moving emails to Trash, \(Int(viewModel.deleteProgress * 100)) percent complete")
+        }
+    }
+
+    @ViewBuilder
+    private func exportProgressOverlay(
+        viewModel: EmailListViewModel, exportTask: Binding<Task<Void, Never>?>
+    ) -> some View {
+        if viewModel.isExporting, let progress = viewModel.exportProgress {
+            ExportProgressOverlay(
+                progress: progress,
+                onCancel: {
+                    exportTask.wrappedValue?.cancel()
+                    exportTask.wrappedValue = nil
+                }
+            )
         }
     }
 
@@ -234,6 +280,16 @@ public struct EmailListView: View {
                 .disabled(viewModel.selectedMessageIDs.isEmpty)
                 .help("Move selected emails to Trash. To permanently delete, empty Trash in Gmail.")
             }
+
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    viewModel.showExportPrompt = true
+                } label: {
+                    Label("Export", systemImage: "arrow.up.doc")
+                }
+                .disabled(viewModel.selectedMessageIDs.isEmpty)
+                .help("Export selected emails to an encrypted DMG archive")
+            }
         }
 
         ToolbarItem(placement: .automatic) {
@@ -258,141 +314,4 @@ public struct EmailListView: View {
     }
 }
 
-// MARK: - Email row
-
-private struct EmailRowView: View {
-    let message: GmailMessage
-    let isSelected: Bool
-    let onToggleSelect: () -> Void
-    let onTap: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Toggle(isOn: Binding(get: { isSelected }, set: { _ in onToggleSelect() }), label: {
-                EmptyView()
-            })
-            .toggleStyle(.checkbox)
-            .accessibilityLabel(isSelected ? "Deselect \(message.subject)" : "Select \(message.subject)")
-
-            Button(action: onTap) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(message.from)
-                            .font(.headline)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(message.date, style: .date)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Text(message.subject.isEmpty ? "(No subject)" : message.subject)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                        .foregroundStyle(message.subject.isEmpty ? .secondary : .primary)
-
-                    HStack {
-                        Text(message.snippet)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(message.formattedSize)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            // swiftlint:disable:next line_length
-            .accessibilityLabel("\(message.from), \(message.subject), \(message.date.formatted(date: .abbreviated, time: .omitted)), \(message.formattedSize)")
-        }
-    }
-}
-
-// MARK: - Trash confirmation sheet
-
-private struct TrashConfirmationSheet: View {
-    let viewModel: EmailListViewModel
-    @Binding var deletionTask: Task<Void, Never>?
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Move to Trash")
-                .font(.title2)
-                .bold()
-
-            Text(countDescription)
-                .fixedSize(horizontal: false, vertical: true)
-
-            sampleSubjects
-
-            // Permanent-deletion policy — shown prominently so users know what to expect.
-            GroupBox {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(.blue)
-                        .accessibilityHidden(true)
-                    Text(EmailListViewModel.permanentDeletionNote)
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Text("Emails in Trash are automatically purged by Gmail after 30 days. You can restore them before then.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.escape)
-                Button("Move to Trash") {
-                    dismiss()
-                    deletionTask = Task { await viewModel.trashSelected() }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .keyboardShortcut(.return)
-                .accessibilityLabel("Confirm move to Trash")
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 420, maxWidth: 560)
-    }
-
-    private var countDescription: String {
-        let count = viewModel.selectedMessageIDs.count
-        return "\(count) email\(count == 1 ? "" : "s") will be moved to Trash."
-    }
-
-    @ViewBuilder
-    private var sampleSubjects: some View {
-        let samples = viewModel.selectedMessages.prefix(5)
-        if !samples.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(samples)) { message in
-                    Label(
-                        message.subject.isEmpty ? "(No subject)" : message.subject,
-                        systemImage: "envelope"
-                    )
-                    .lineLimit(1)
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-                }
-                if viewModel.selectedMessages.count > 5 {
-                    Text("…and \(viewModel.selectedMessages.count - 5) more.")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
-                }
-            }
-        }
-    }
-}
+// MARK: - Email row is extracted to EmailListViewHelpers.swift
