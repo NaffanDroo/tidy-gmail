@@ -171,6 +171,23 @@ public final class LiveGmailAPIClient: GmailAPIClient {
     }
 }
 
+// MARK: - User-facing error messages
+
+extension GmailAPIError {
+    public var userMessage: String {
+        switch self {
+        case .unauthorized:
+            return "Your session has expired. Please sign out and sign in again."
+        case .rateLimited:
+            return "Too many requests. Please wait a moment and try again."
+        case .serverError(let code):
+            return "Gmail returned an error (HTTP \(code)). Please try again."
+        case .decodingFailed, .invalidResponse:
+            return "Received an unexpected response from Gmail. Please try again."
+        }
+    }
+}
+
 // MARK: - Batch request bodies
 
 private struct BatchModifyRequest: Encodable {

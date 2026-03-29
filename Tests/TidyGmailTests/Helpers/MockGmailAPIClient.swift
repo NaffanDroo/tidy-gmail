@@ -30,8 +30,6 @@ final class MockGmailAPIClient: GmailAPIClient, @unchecked Sendable {
         try trashResult.get()
         trashedIDs.append(contentsOf: ids)
     }
-
-
 }
 
 // MARK: - Fixture factory
