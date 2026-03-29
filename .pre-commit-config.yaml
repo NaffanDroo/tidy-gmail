@@ -1,0 +1,47 @@
+# All hooks use language: system — they rely on tools installed by ./setup.sh
+# rather than cloning repos from GitHub at commit time. This means:
+#   - No network access required at commit time
+#   - Works on SSH-only machines
+#   - Hook initialisation is instant
+
+repos:
+  - repo: local
+    hooks:
+
+      # ── commit-msg: Conventional Commits ───────────────────────────────
+      - id: conventional-commit-msg
+        name: Conventional Commits
+        stages: [commit-msg]
+        language: system
+        entry: bash scripts/check-commit-msg.sh
+        pass_filenames: true
+
+      # ── pre-commit: SwiftLint on staged Swift files ─────────────────────
+      - id: swiftlint
+        name: SwiftLint
+        language: system
+        entry: swiftlint lint --strict --config .swiftlint.yml
+        types: [swift]
+        stages: [pre-commit]
+
+      # ── pre-push: full build + test pipeline ────────────────────────────
+      - id: build
+        name: Build (release)
+        language: system
+        entry: bash build.sh
+        stages: [pre-push]
+        pass_filenames: false
+
+      - id: build-warnings-as-errors
+        name: Build (warnings as errors)
+        language: system
+        entry: bash build.sh --warnings-as-errors
+        stages: [pre-push]
+        pass_filenames: false
+
+      - id: test
+        name: Test suite
+        language: system
+        entry: bash test.sh
+        stages: [pre-push]
+        pass_filenames: false

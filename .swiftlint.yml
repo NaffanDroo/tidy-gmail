@@ -1,0 +1,42 @@
+disabled_rules:
+  - trailing_whitespace
+
+opt_in_rules:
+  - array_init
+  - closure_spacing
+  - contains_over_filter_count
+  - empty_collection_literal
+  - first_where
+  - last_where
+  - literal_expression_end_indentation
+  - modifier_order
+  - operator_usage_whitespace
+  - prefer_self_type_over_type_of_self
+  - prefer_zero_over_explicit_init
+  - redundant_nil_coalescing
+  - toggle_bool
+  - vertical_parameter_alignment_on_call
+  - yoda_condition
+
+line_length:
+  warning: 120
+  error: 150
+
+type_body_length:
+  warning: 300
+  error: 500
+
+file_length:
+  warning: 400
+  error: 600
+
+function_body_length:
+  warning: 60
+  error: 100
+
+reporter: "xcode"
+
+excluded:
+  - .build
+  - DerivedData
+  - scripts

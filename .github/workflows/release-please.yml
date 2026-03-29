@@ -1,0 +1,140 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  DMG_NAME: TidyGmail.dmg
+
+# Release-please does two things in one call:
+#   1. Process any merged release PR → create GitHub release + git tag
+#   2. Scan commits since the latest release → create/update the next release PR
+#
+# Steps 1 and 2 must run in separate jobs. Step 1 creates the GitHub release
+# via the API; step 2 immediately queries the API for "latest release" to find
+# the changelog baseline. GitHub's API has a brief propagation delay, so step 2
+# sees no releases and falls back to scanning all commits — producing a bloated
+# changelog PR.
+#
+# Solution: three sequential jobs.
+#   create-release     → only creates the draft GitHub release + tag
+#                        (skip-github-pull-request: true)
+#   build-and-publish  → builds the DMG on macos-15, attaches it to the draft
+#                        release, then publishes; release goes live only once
+#                        the DMG is attached (immutable release guarantee)
+#   update-release-pr  → only creates/updates the next release PR
+#                        (skip-github-release: true)
+#
+# By the time update-release-pr runs (~5+ min after create-release, gated
+# behind the macOS build), the new GitHub release has propagated and
+# release-please finds the correct baseline.
+#
+# Token split:
+#   create-release    uses GITHUB_TOKEN — creates signed objects that satisfy
+#                     required_signatures rulesets; App token does not sign
+#   update-release-pr uses App token — required for PR creation through
+#                     branch protection rules
+
+jobs:
+
+  # Process any merged release PR and create the draft GitHub release + tag.
+  # Intentionally does NOT update the next release PR (skip-github-pull-request)
+  # to avoid the API propagation race described above.
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-pull-request: true
+
+  # Build the DMG, attach it to the draft release, then publish.
+  # The release only goes live once the artifact is attached — immutable release
+  # guarantee: users never see a release without a downloadable asset.
+  build-and-publish:
+    name: Build & Attach DMG
+    runs-on: macos-15
+    needs: create-release
+    if: ${{ needs.create-release.outputs.release_created == 'true' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build app bundle
+        env:
+          TIDY_GMAIL_CLIENT_ID: ${{ secrets.TIDY_GMAIL_CLIENT_ID }}
+          TIDY_GMAIL_CLIENT_SECRET: ${{ secrets.TIDY_GMAIL_CLIENT_SECRET }}
+        run: bash build.sh
+
+      # TODO: Add notarisation step once Apple Developer credentials are available.
+      # Requires APPLE_DEVELOPER_CERT, APPLE_DEVELOPER_PASSWORD, APPLE_TEAM_ID secrets.
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ needs.create-release.outputs.tag_name }}"
+          hdiutil create \
+            -volname "TidyGmail ${VERSION}" \
+            -srcfolder TidyGmail.app \
+            -ov -format UDZO \
+            "${DMG_NAME}"
+
+      - name: Attach zip to draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+        run: |
+          VERSIONED_DMG="TidyGmail-${TAG}.dmg"
+          VERSIONED_ZIP="TidyGmail-${TAG}.zip"
+          mv "${DMG_NAME}" "${VERSIONED_DMG}"
+          # ditto with --rsrc preserves the resource fork in the zip so the
+          # DMG file icon survives extraction on macOS.
+          ditto -c -k --keepParent --rsrc "${VERSIONED_DMG}" "${VERSIONED_ZIP}"
+          gh release upload "${TAG}" "${VERSIONED_ZIP}" \
+            --repo "${{ github.repository }}"
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+        run: |
+          gh release edit "${TAG}" \
+            --draft=false \
+            --repo "${{ github.repository }}"
+
+  # Create or update the next release PR. Runs after build-and-publish (or
+  # after create-release when no release was just created). By this point the
+  # new GitHub release has been live for 5+ minutes (gated behind the macOS
+  # build) and is fully visible to the API, so release-please finds the correct
+  # commit baseline and produces a clean PR.
+  # skip-github-release: true prevents a second release being created — the tag
+  # already exists from create-release and the state machine is satisfied.
+  update-release-pr:
+    name: Update Release PR
+    runs-on: ubuntu-latest
+    needs: [create-release, build-and-publish]
+    if: ${{ always() && needs.create-release.result == 'success' }}
+    steps:
+      - name: Get Token
+        id: get_workflow_token
+        uses: peter-murray/workflow-application-token-action@d17e3a9a36850ea89f35db16c1067dd2b68ee343 # v4
+        with:
+          application_id: ${{ secrets.APPLICATION_ID }}
+          application_private_key: ${{ secrets.APPLICATION_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+        with:
+          token: ${{ steps.get_workflow_token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true

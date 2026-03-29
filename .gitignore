@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+*.swp
+
+# IDE / editor — local config, not shared
+.vscode/
+.idea/
+
+# Claude Code — permissions are developer-local; agents are shared
+.claude/settings.json
+.claude/settings.local.json
+
+# Xcode / Swift
+DerivedData/
+.build/
+*.xcuserdata
+*.xcworkspace/xcuserdata
+*.xcuserstate
+*.xcscmblueprint
+build/
+
+# Credentials — NEVER commit these
+token.json
+credentials.json
+client_secret*.json
+*.p12
+*.pem
+*.mobileprovision
+*.cer
+GoogleService-Info.plist
+xcconfig/secrets.xcconfig
+xcconfig/client_id
+xcconfig/client_secret
+
+# Build artefacts
+*.dmg
+*.zip
+*.app/
+TidyGmail.app
+
+# Logs
+*.log
