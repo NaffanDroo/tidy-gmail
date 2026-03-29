@@ -30,6 +30,26 @@ struct GmailHeader: Decodable, Sendable {
     let value: String
 }
 
+// MARK: - Raw message response (format=raw)
+
+struct GmailRawMessageResponse: Decodable, Sendable {
+    let id: String
+    let threadId: String
+    let raw: String
+    let labelIds: [String]?
+}
+
+// MARK: - Labels
+
+struct GmailLabelsListResponse: Decodable, Sendable {
+    let labels: [GmailLabelResponse]?
+}
+
+struct GmailLabelResponse: Decodable, Sendable {
+    let id: String
+    let name: String
+}
+
 // MARK: - Mapping
 
 extension GmailMessageResponse {

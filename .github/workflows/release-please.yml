@@ -83,9 +83,23 @@ jobs:
       - name: Create DMG
         run: |
           VERSION="${{ needs.create-release.outputs.tag_name }}"
+          
+          # Create a staging directory with the app and custom icon
+          STAGING_DIR=$(mktemp -d)
+          trap "rm -rf $STAGING_DIR" EXIT
+          
+          cp -r TidyGmail.app "$STAGING_DIR/"
+          
+          # Copy the app icon to the staging directory as the volume icon
+          cp "TidyGmail.app/Contents/Resources/AppIcon.icns" "$STAGING_DIR/.VolumeIcon.icns"
+          
+          # Set the custom icon attribute
+          SetFile -a C "$STAGING_DIR"
+          
+          # Create DMG from staging directory
           hdiutil create \
             -volname "TidyGmail ${VERSION}" \
-            -srcfolder TidyGmail.app \
+            -srcfolder "$STAGING_DIR" \
             -ov -format UDZO \
             "${DMG_NAME}"
 
